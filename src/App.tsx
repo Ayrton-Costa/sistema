@@ -264,42 +264,42 @@ export default function App() {
           isSaving={isSaving}
         />
 
-        {/* Barra de Seleção do Modo de Visualização */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-          <div className="flex items-center gap-1.5 p-1 bg-slate-200/70 rounded-xl w-fit">
+        {/* Barra de Seleção do Modo de Visualização Responsiva */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 mb-4">
+          <div className="grid grid-cols-2 sm:flex items-center gap-1 p-1 bg-slate-200/70 rounded-xl w-full sm:w-fit">
             <button
               id="btn-modo-hierarquia"
               type="button"
               onClick={() => setModoVisualizacao('hierarquia')}
-              className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+              className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
                 modoVisualizacao === 'hierarquia'
                   ? 'bg-white text-blue-700 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <Network className="w-3.5 h-3.5 text-blue-600" />
-              <span>Hierarquia Encapsulada (Loja / Indústria / Produtos)</span>
+              <Network className="w-4 h-4 text-blue-600 shrink-0" />
+              <span className="truncate">Visão Hierárquica</span>
             </button>
             <button
               id="btn-modo-tabela"
               type="button"
               onClick={() => setModoVisualizacao('tabela')}
-              className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+              className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
                 modoVisualizacao === 'tabela'
                   ? 'bg-white text-slate-900 shadow-xs'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              <Table className="w-3.5 h-3.5 text-slate-600" />
-              <span>Tabela Geral com Filtros</span>
+              <Table className="w-4 h-4 text-slate-600 shrink-0" />
+              <span className="truncate">Tabela Geral</span>
             </button>
           </div>
 
-          <div className="text-xs text-slate-500">
+          <div className="text-[11px] sm:text-xs text-slate-500 text-center sm:text-right">
             {modoVisualizacao === 'hierarquia' ? (
-              <span>Modo Árvore com controle de precedência</span>
+              <span>Árvore organizada: <strong>Loja → Indústria → Produtos</strong></span>
             ) : (
-              <span>Modo Planilha com extração em Excel</span>
+              <span>Planilha geral para filtragem e extração em Excel</span>
             )}
           </div>
         </div>

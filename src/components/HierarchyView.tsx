@@ -358,11 +358,170 @@ export const HierarchyView: React.FC<HierarchyViewProps> = ({
                   profundidade === 0
                     ? 'ml-0'
                     : profundidade === 1
-                    ? 'ml-3 sm:ml-5'
-                    : 'ml-6 sm:ml-9'
+                    ? 'ml-1 sm:ml-5'
+                    : 'ml-2 sm:ml-9'
                 }`}
               >
-                <div className="overflow-x-auto">
+                {/* Visualização em Cards para Mobile (sm:hidden) */}
+                <div className="block sm:hidden divide-y divide-slate-100">
+                  {node.items.map((prod) => {
+                    const isEditing = editingId === prod.id;
+                    const dias = calcularDiasRestantes(prod.data_vencimento);
+                    const statusObj = obterStatusValidade(dias);
+
+                    if (isEditing) {
+                      return (
+                        <div key={prod.id} className="p-3 bg-blue-50/50 space-y-2 text-xs">
+                          <div>
+                            <span className="text-[10px] font-bold text-slate-500 uppercase">Produto:</span>
+                            <input
+                              type="text"
+                              value={editForm.produto || ''}
+                              onChange={(e) =>
+                                setEditForm((prev) => ({ ...prev, produto: e.target.value }))
+                              }
+                              className="w-full h-9 px-2 text-xs bg-white border border-blue-300 rounded-lg font-medium mt-0.5"
+                            />
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <span className="text-[10px] font-bold text-slate-500 uppercase">Quantidade:</span>
+                              <input
+                                type="number"
+                                value={editForm.quantidade ?? ''}
+                                onChange={(e) =>
+                                  setEditForm((prev) => ({
+                                    ...prev,
+                                    quantidade: Number(e.target.value),
+                                  }))
+                                }
+                                className="w-full h-9 px-2 text-xs bg-white border border-blue-300 rounded-lg font-medium mt-0.5"
+                              />
+                            </div>
+                            <div>
+                              <span className="text-[10px] font-bold text-slate-500 uppercase">Vencimento:</span>
+                              <input
+                                type="date"
+                                value={editForm.data_vencimento || ''}
+                                onChange={(e) =>
+                                  setEditForm((prev) => ({
+                                    ...prev,
+                                    data_vencimento: e.target.value,
+                                  }))
+                                }
+                                className="w-full h-9 px-2 text-xs bg-white border border-blue-300 rounded-lg font-medium mt-0.5"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-end gap-2 pt-1">
+                            <button
+                              type="button"
+                              onClick={handleCancelEdit}
+                              className="px-3 py-1.5 text-xs text-slate-600 bg-white border border-slate-200 rounded-lg font-semibold"
+                            >
+                              Cancelar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleSaveEdit}
+                              className="px-3 py-1.5 text-xs text-white bg-emerald-600 rounded-lg font-semibold"
+                            >
+                              Salvar
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div key={prod.id} className="p-3 hover:bg-slate-50 transition-colors space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <div className="font-bold text-slate-900 text-sm">{prod.produto}</div>
+                            <div className="text-[11px] text-slate-500 mt-0.5">
+                              <span>{prod.industria}</span>
+                              {prod.loja && <span> • {prod.loja}</span>}
+                            </div>
+                          </div>
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border shrink-0 ${statusObj.badgeClass}`}
+                          >
+                            {statusObj.rotulo}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-xs">
+                          {/* Stepper Touch de Quantidade */}
+                          <div className="flex items-center bg-slate-100 rounded-lg p-0.5">
+                            <button
+                              type="button"
+                              onClick={() => handleMudarQuantidade(prod, -1)}
+                              className="w-7 h-7 rounded bg-white shadow-2xs flex items-center justify-center text-slate-700 active:bg-slate-200 cursor-pointer"
+                              title="Diminuir"
+                            >
+                              <Minus className="w-3.5 h-3.5" />
+                            </button>
+                            <span className="font-bold text-slate-900 px-2 min-w-[28px] text-center">
+                              {prod.quantidade}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleMudarQuantidade(prod, +1)}
+                              className="w-7 h-7 rounded bg-white shadow-2xs flex items-center justify-center text-slate-700 active:bg-slate-200 cursor-pointer"
+                              title="Aumentar"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                            </button>
+                            <span className="text-[10px] text-slate-500 font-semibold px-1.5">
+                              {prod.unidade || 'un'}
+                            </span>
+                          </div>
+
+                          {/* Data e Ações */}
+                          <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-1 text-slate-700 font-semibold text-xs">
+                              <Calendar className="w-3.5 h-3.5 text-blue-600" />
+                              <span>{formatarDataBR(prod.data_vencimento)}</span>
+                            </div>
+
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleStartEdit(prod)}
+                                className="p-1.5 text-slate-500 hover:text-blue-600 bg-slate-50 rounded-md border border-slate-200"
+                                title="Editar"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (confirm(`Remover "${prod.produto}" do controle?`)) {
+                                    onDelete(prod.id);
+                                  }
+                                }}
+                                className="p-1.5 text-slate-500 hover:text-red-600 bg-slate-50 rounded-md border border-slate-200"
+                                title="Excluir"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {(prod.lote || prod.observacoes) && (
+                          <div className="text-[11px] text-slate-500 bg-slate-50 p-1.5 rounded-lg border border-slate-100 flex items-center gap-2">
+                            {prod.lote && <span className="font-mono font-bold text-slate-700">Lote: {prod.lote}</span>}
+                            {prod.observacoes && <span>Obs: {prod.observacoes}</span>}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Tabela Padrão para Desktop e Tablets (hidden sm:block) */}
+                <div className="hidden sm:block overflow-x-auto">
                   <table className="w-full text-left text-xs border-collapse">
                     <thead className="bg-slate-50 text-slate-500 uppercase tracking-wider font-semibold border-b border-slate-200">
                       <tr>

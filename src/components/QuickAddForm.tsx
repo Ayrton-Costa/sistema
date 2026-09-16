@@ -1,6 +1,7 @@
 import React, { useState, useRef, useMemo } from 'react';
 import {
   Plus,
+  Minus,
   Calendar,
   Layers,
   ChevronDown,
@@ -14,6 +15,7 @@ import {
   Send,
   Trash2,
   ListPlus,
+  Sparkles,
 } from 'lucide-react';
 import { ItemValidade } from '../types';
 
@@ -311,13 +313,13 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
 
       <form onSubmit={handleFinalizarEEnviar} className="space-y-3">
         {/* Linha 1: Dados da Loja, Estado e Coordenador */}
-        <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 p-3 bg-slate-50/80 border border-slate-200/80 rounded-lg">
+        <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 p-3 bg-slate-50/80 border border-slate-200/80 rounded-xl">
           <div className="sm:col-span-5">
             <label
               htmlFor="input-loja"
-              className="block text-xs font-medium text-slate-700 mb-1 flex items-center gap-1"
+              className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1"
             >
-              <Store className="w-3.5 h-3.5 text-slate-500" />
+              <Store className="w-3.5 h-3.5 text-blue-600" />
               <span>Nome da Loja</span>
             </label>
             <div className="relative">
@@ -328,7 +330,7 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
                 value={loja}
                 onChange={(e) => handleMudarLoja(e.target.value)}
                 placeholder="Ex: Hiper Centro, Loja 04..."
-                className="w-full h-9 px-3 text-xs sm:text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full h-11 sm:h-10 px-3 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-800"
               />
               <datalist id="lista-lojas-cadastradas">
                 {lojasCadastradas.map((l) => (
@@ -341,7 +343,7 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
           <div className="sm:col-span-3">
             <label
               htmlFor="select-estado"
-              className="block text-xs font-medium text-slate-700 mb-1 flex items-center gap-1"
+              className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1"
             >
               <MapPin className="w-3.5 h-3.5 text-slate-500" />
               <span>Estado (UF)</span>
@@ -350,7 +352,7 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
               id="select-estado"
               value={estado}
               onChange={(e) => setEstado(e.target.value)}
-              className="w-full h-9 px-2 text-xs sm:text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+              className="w-full h-11 sm:h-10 px-3 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-800"
             >
               <option value="">Selecione...</option>
               {ESTADOS_BRASIL.map((uf) => (
@@ -364,7 +366,7 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
           <div className="sm:col-span-4">
             <label
               htmlFor="input-coordenador"
-              className="block text-xs font-medium text-slate-700 mb-1 flex items-center gap-1"
+              className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1"
             >
               <UserCheck className="w-3.5 h-3.5 text-slate-500" />
               <span>Coordenador / Responsável</span>
@@ -377,7 +379,7 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
                 value={coordenador}
                 onChange={(e) => setCoordenador(e.target.value)}
                 placeholder="Ex: Carlos Silva, Mariana..."
-                className="w-full h-9 px-3 text-xs sm:text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full h-11 sm:h-10 px-3 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-800"
               />
               <datalist id="lista-coordenadores-cadastrados">
                 {coordenadoresCadastrados.map((c) => (
@@ -392,12 +394,14 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3">
           {/* Indústria / Fabricante */}
           <div className="lg:col-span-3">
-            <label
-              htmlFor="input-industria"
-              className="block text-xs font-medium text-slate-700 mb-1"
-            >
-              Indústria / Fabricante <span className="text-red-500">*</span>
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label
+                htmlFor="input-industria"
+                className="block text-xs font-semibold text-slate-700"
+              >
+                Indústria / Fabricante <span className="text-red-500">*</span>
+              </label>
+            </div>
             <div className="relative">
               <input
                 id="input-industria"
@@ -406,8 +410,8 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
                 required
                 value={industria}
                 onChange={(e) => setIndustria(e.target.value)}
-                placeholder="Ex: Nestlé, Ambev..."
-                className="w-full h-10 px-3 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                placeholder="Ex: Nestlé, Ambev, Bauducco..."
+                className="w-full h-11 sm:h-10 px-3 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium"
               />
               <datalist id="lista-industrias">
                 {sugestoesIndustrias.map((sug) => (
@@ -415,6 +419,23 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
                 ))}
               </datalist>
             </div>
+
+            {/* Chips rápidos de indústrias cadastradas para tocar no celular */}
+            {sugestoesIndustrias.length > 0 && !industria && (
+              <div className="flex items-center gap-1.5 overflow-x-auto py-1.5 no-scrollbar">
+                <span className="text-[10px] text-slate-600 font-semibold shrink-0">Sugestões:</span>
+                {sugestoesIndustrias.slice(0, 5).map((ind) => (
+                  <button
+                    key={ind}
+                    type="button"
+                    onClick={() => setIndustria(ind)}
+                    className="shrink-0 text-[11px] px-2.5 py-1 bg-blue-50 text-blue-700 font-medium rounded-full border border-blue-200/80 active:scale-95 transition"
+                  >
+                    {ind}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Produto com filtro automático pela indústria selecionada */}
@@ -422,12 +443,12 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
             <div className="flex items-center justify-between mb-1">
               <label
                 htmlFor="input-produto"
-                className="block text-xs font-medium text-slate-700"
+                className="block text-xs font-semibold text-slate-700"
               >
                 Produto <span className="text-red-500">*</span>
               </label>
               {industria && sugestoesProdutosPorIndustria.length > 0 && (
-                <span className="text-[11px] text-blue-600 font-medium">
+                <span className="text-[11px] text-blue-600 font-medium truncate max-w-[170px]">
                   {sugestoesProdutosPorIndustria.length} produtos de {industria}
                 </span>
               )}
@@ -445,7 +466,7 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
                     ? `Escolha ou digite o produto da ${industria}...`
                     : 'Digite ou selecione o produto...'
                 }
-                className="w-full h-10 px-3 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                className="w-full h-11 sm:h-10 px-3 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium"
               />
               <datalist id="lista-produtos-sugeridos">
                 {sugestoesProdutosPorIndustria.map((prod) => (
@@ -453,30 +474,74 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
                 ))}
               </datalist>
             </div>
+
+            {/* Chips rápidos dos produtos vinculados a esta indústria */}
+            {industria && sugestoesProdutosPorIndustria.length > 0 && (
+              <div className="flex items-center gap-1.5 overflow-x-auto py-1.5 no-scrollbar">
+                <span className="text-[10px] text-slate-600 font-semibold shrink-0 flex items-center gap-1">
+                  <Sparkles className="w-3 h-3 text-purple-600" /> Toque:
+                </span>
+                {sugestoesProdutosPorIndustria.slice(0, 6).map((prodNome) => (
+                  <button
+                    key={prodNome}
+                    type="button"
+                    onClick={() => setProduto(prodNome)}
+                    className={`shrink-0 text-[11px] px-2.5 py-1 rounded-full border transition active:scale-95 ${
+                      produto === prodNome
+                        ? 'bg-purple-600 text-white border-purple-600 font-bold'
+                        : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
+                    }`}
+                  >
+                    {prodNome}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
-          {/* Quantidade e Unidade */}
+          {/* Quantidade e Unidade com botões (+ / -) ideais para toque */}
           <div className="lg:col-span-2">
             <label
               htmlFor="input-quantidade"
-              className="block text-xs font-medium text-slate-700 mb-1"
+              className="block text-xs font-semibold text-slate-700 mb-1"
             >
               Qtd & Unidade <span className="text-red-500">*</span>
             </label>
-            <div className="flex gap-1.5">
-              <input
-                id="input-quantidade"
-                type="number"
-                min="1"
-                value={quantidade}
-                onChange={(e) => setQuantidade(Math.max(1, Number(e.target.value)))}
-                className="w-20 h-10 px-2.5 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-center font-medium"
-              />
+            <div className="flex items-center gap-1.5">
+              {/* Stepper Touch */}
+              <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl h-11 sm:h-10 p-1">
+                <button
+                  type="button"
+                  onClick={() => setQuantidade((q) => Math.max(1, q - 1))}
+                  className="w-8 h-8 rounded-lg bg-white shadow-2xs text-slate-600 hover:text-slate-900 active:bg-slate-100 flex items-center justify-center cursor-pointer"
+                  title="Diminuir"
+                >
+                  <Minus className="w-3.5 h-3.5" />
+                </button>
+                <input
+                  id="input-quantidade"
+                  type="number"
+                  min="1"
+                  value={quantidade}
+                  onChange={(e) => setQuantidade(Math.max(1, Number(e.target.value) || 1))}
+                  className="w-12 text-center text-sm font-bold text-slate-900 bg-transparent focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => setQuantidade((q) => q + 1)}
+                  className="w-8 h-8 rounded-lg bg-white shadow-2xs text-slate-600 hover:text-slate-900 active:bg-slate-100 flex items-center justify-center cursor-pointer"
+                  title="Aumentar"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {/* Unidade */}
               <select
                 id="select-unidade"
                 value={unidade}
                 onChange={(e) => setUnidade(e.target.value)}
-                className="flex-1 h-10 px-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex-1 h-11 sm:h-10 px-2 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-slate-700"
               >
                 <option value="un">un</option>
                 <option value="cx">cx</option>
@@ -492,7 +557,7 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
           <div className="lg:col-span-3">
             <label
               htmlFor="input-vencimento"
-              className="block text-xs font-medium text-slate-700 mb-1"
+              className="block text-xs font-semibold text-slate-700 mb-1"
             >
               Data de Vencimento <span className="text-red-500">*</span>
             </label>
@@ -502,90 +567,94 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
                 type="date"
                 value={dataVencimento}
                 onChange={(e) => setDataVencimento(e.target.value)}
-                className="w-full h-10 px-3 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                className="w-full h-11 sm:h-10 px-3 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium text-slate-800"
               />
             </div>
           </div>
         </div>
 
-        {/* Atalhos rápidos de data para agilizar o lançamento */}
-        <div className="flex flex-wrap items-center gap-1.5 pt-1 text-xs text-slate-500">
-          <span className="font-medium text-slate-600 flex items-center gap-1 mr-1">
-            <Calendar className="w-3.5 h-3.5" /> Vence em:
-          </span>
-          <button
-            id="btn-atalho-7d"
-            type="button"
-            onClick={() => aplicarDataAtalho(7)}
-            className="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 transition cursor-pointer"
-          >
-            +7 dias
-          </button>
-          <button
-            id="btn-atalho-15d"
-            type="button"
-            onClick={() => aplicarDataAtalho(15)}
-            className="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 transition cursor-pointer"
-          >
-            +15 dias
-          </button>
-          <button
-            id="btn-atalho-30d"
-            type="button"
-            onClick={() => aplicarDataAtalho(30)}
-            className="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 transition cursor-pointer"
-          >
-            +30 dias
-          </button>
-          <button
-            id="btn-atalho-60d"
-            type="button"
-            onClick={() => aplicarDataAtalho(60)}
-            className="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 transition cursor-pointer"
-          >
-            +60 dias
-          </button>
-          <button
-            id="btn-atalho-90d"
-            type="button"
-            onClick={() => aplicarDataAtalho(90)}
-            className="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 transition cursor-pointer"
-          >
-            +90 dias
-          </button>
-          <button
-            id="btn-atalho-fim-mes"
-            type="button"
-            onClick={aplicarFimDoMes}
-            className="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 transition cursor-pointer"
-          >
-            Fim deste mês
-          </button>
-          <button
-            id="btn-atalho-fim-prox"
-            type="button"
-            onClick={aplicarFimProximoMes}
-            className="px-2 py-0.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-700 transition cursor-pointer"
-          >
-            Fim do próx. mês
-          </button>
+        {/* Atalhos rápidos de data para agilizar o lançamento mobile */}
+        <div className="space-y-1.5 pt-1">
+          <div className="flex items-center justify-between text-xs text-slate-600">
+            <span className="font-semibold flex items-center gap-1">
+              <Calendar className="w-3.5 h-3.5 text-blue-600" /> Vence em (Toque rápido):
+            </span>
+            <button
+              id="btn-toggle-extras"
+              type="button"
+              onClick={() => setShowExtras(!showExtras)}
+              className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1 cursor-pointer"
+            >
+              {showExtras ? (
+                <>
+                  <ChevronUp className="w-3.5 h-3.5" /> Menos opções
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="w-3.5 h-3.5" /> + Lote & Obs
+                </>
+              )}
+            </button>
+          </div>
 
-          <button
-            id="btn-toggle-extras"
-            type="button"
-            onClick={() => setShowExtras(!showExtras)}
-            className="ml-auto text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1 cursor-pointer"
-          >
-            {showExtras ? (
-              <>
-                <ChevronUp className="w-3.5 h-3.5" /> Menos opções
-              </>
-            ) : (
-              <>
-                <ChevronDown className="w-3.5 h-3.5" /> Lote & Obs (opcional)
-              </>
-            )}
-          </button>
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-xs">
+            <button
+              id="btn-atalho-7d"
+              type="button"
+              onClick={() => aplicarDataAtalho(7)}
+              className="px-2.5 py-1.5 rounded-lg bg-slate-100 active:bg-blue-100 active:text-blue-700 text-slate-700 font-medium shrink-0 transition"
+            >
+              +7 dias
+            </button>
+            <button
+              id="btn-atalho-15d"
+              type="button"
+              onClick={() => aplicarDataAtalho(15)}
+              className="px-2.5 py-1.5 rounded-lg bg-slate-100 active:bg-blue-100 active:text-blue-700 text-slate-700 font-medium shrink-0 transition"
+            >
+              +15 dias
+            </button>
+            <button
+              id="btn-atalho-30d"
+              type="button"
+              onClick={() => aplicarDataAtalho(30)}
+              className="px-2.5 py-1.5 rounded-lg bg-slate-100 active:bg-blue-100 active:text-blue-700 text-slate-700 font-medium shrink-0 transition"
+            >
+              +30 dias
+            </button>
+            <button
+              id="btn-atalho-60d"
+              type="button"
+              onClick={() => aplicarDataAtalho(60)}
+              className="px-2.5 py-1.5 rounded-lg bg-slate-100 active:bg-blue-100 active:text-blue-700 text-slate-700 font-medium shrink-0 transition"
+            >
+              +60 dias
+            </button>
+            <button
+              id="btn-atalho-90d"
+              type="button"
+              onClick={() => aplicarDataAtalho(90)}
+              className="px-2.5 py-1.5 rounded-lg bg-slate-100 active:bg-blue-100 active:text-blue-700 text-slate-700 font-medium shrink-0 transition"
+            >
+              +90 dias
+            </button>
+            <button
+              id="btn-atalho-fim-mes"
+              type="button"
+              onClick={aplicarFimDoMes}
+              className="px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 font-medium shrink-0 border border-blue-200/80 transition"
+            >
+              Fim do mês
+            </button>
+            <button
+              id="btn-atalho-fim-prox"
+              type="button"
+              onClick={aplicarFimProximoMes}
+              className="px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 font-medium shrink-0 border border-blue-200/80 transition"
+            >
+              Fim próx. mês
+            </button>
+          </div>
         </div>
 
         {/* Campos Opcionais Extras */}
@@ -679,41 +748,39 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
         )}
 
         {/* Barra de Ações: Adicionar outro produto & Finalizar e Enviar */}
-        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-2 border-t border-slate-100">
           {/* Botão de Adicionar outro produto daquela indústria */}
           <button
             id="btn-adicionar-outro-produto"
             type="button"
             onClick={handleAdicionarFila}
             disabled={!industria.trim() || !produto.trim() || !dataVencimento}
-            className="inline-flex items-center gap-1.5 h-9 px-3.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-40 text-slate-800 text-xs font-medium rounded-lg transition cursor-pointer"
+            className="inline-flex items-center justify-center gap-2 h-11 sm:h-10 px-4 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 disabled:opacity-40 text-slate-800 text-xs font-semibold rounded-xl transition cursor-pointer"
           >
             <PackagePlus className="w-4 h-4 text-slate-600" />
             <span>+ Adicionar outro produto desta indústria</span>
           </button>
 
           {/* Botão de Finalizar e Enviar */}
-          <div className="flex items-center gap-2 ml-auto">
-            <button
-              id="btn-finalizar-enviar"
-              type="submit"
-              disabled={
-                isSaving ||
-                (produtosPendentes.length === 0 &&
-                  (!industria.trim() || !produto.trim() || !dataVencimento))
-              }
-              className="inline-flex items-center justify-center gap-2 h-10 px-5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-semibold rounded-lg shadow-xs transition cursor-pointer"
-            >
-              <Send className="w-4 h-4" />
-              <span>
-                {isSaving
-                  ? 'Enviando ao Supabase...'
-                  : produtosPendentes.length > 0
-                  ? `Finalizar e Enviar (${produtosPendentes.length + (produto.trim() && dataVencimento ? 1 : 0)} itens)`
-                  : 'Finalizar e Enviar'}
-              </span>
-            </button>
-          </div>
+          <button
+            id="btn-finalizar-enviar"
+            type="submit"
+            disabled={
+              isSaving ||
+              (produtosPendentes.length === 0 &&
+                (!industria.trim() || !produto.trim() || !dataVencimento))
+            }
+            className="inline-flex items-center justify-center gap-2 h-12 sm:h-10 px-6 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 disabled:opacity-50 text-white text-sm font-bold rounded-xl shadow-xs transition cursor-pointer"
+          >
+            <Send className="w-4 h-4" />
+            <span>
+              {isSaving
+                ? 'Enviando ao Supabase...'
+                : produtosPendentes.length > 0
+                ? `Finalizar e Enviar (${produtosPendentes.length + (produto.trim() && dataVencimento ? 1 : 0)} itens)`
+                : 'Salvar e Enviar'}
+            </span>
+          </button>
         </div>
       </form>
     </div>
