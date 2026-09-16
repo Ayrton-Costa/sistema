@@ -1,0 +1,6 @@
+{
+  "name": "Controle de Validade",
+  "description": "Sistema ágil de controle de validade por indústria, produtos, quantidade e data de vencimento com integração Supabase e exportação para Excel.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

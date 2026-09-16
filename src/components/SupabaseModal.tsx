@@ -1,0 +1,387 @@
+import React, { useState } from 'react';
+import { X, Database, Check, Copy, AlertCircle, RefreshCw, ExternalLink, ShieldCheck } from 'lucide-react';
+import { SupabaseConfig } from '../types';
+import { testSupabaseConnection, cleanSupabaseUrl, cleanTableName } from '../lib/supabase';
+
+interface SupabaseModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  currentConfig: SupabaseConfig;
+  onSaveConfig: (config: SupabaseConfig) => Promise<void>;
+}
+
+const SQL_INSTRUCTIONS = `-- ========================================================
+-- SCRIPT SQL COMPLETO PARA SUPABASE (SEM UUID)
+-- Perfeito para importação direta de planilhas Excel / CSV
+-- e sincronização automática com o sistema de validade.
+-- ========================================================
+
+-- 1. TABELA PRINCIPAL: VALIDADES (Controle de Estoque e Vencimentos)
+-- O campo "id" é BIGINT numérico sequencial automático (sem UUID).
+CREATE TABLE IF NOT EXISTS validades (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  loja TEXT,
+  estado VARCHAR(2),
+  coordenador TEXT,
+  industria TEXT NOT NULL,
+  produto TEXT NOT NULL,
+  quantidade NUMERIC NOT NULL DEFAULT 1,
+  unidade TEXT DEFAULT 'un',
+  data_vencimento DATE NOT NULL,
+  lote TEXT,
+  observacoes TEXT,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Índices de consulta rápida para filtros e ordenação:
+CREATE INDEX IF NOT EXISTS idx_validades_vencimento ON validades (data_vencimento ASC);
+CREATE INDEX IF NOT EXISTS idx_validades_industria ON validades (industria);
+CREATE INDEX IF NOT EXISTS idx_validades_produto ON validades (produto);
+CREATE INDEX IF NOT EXISTS idx_validades_loja ON validades (loja);
+CREATE INDEX IF NOT EXISTS idx_validades_coordenador ON validades (coordenador);
+
+-- 2. TABELAS DE APOIO OPCIONAIS (SEM UUID):
+-- Lojas (Cadastro separado de Lojas com Estado e Coordenador)
+CREATE TABLE IF NOT EXISTS lojas (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  nome TEXT NOT NULL UNIQUE,
+  estado VARCHAR(2),
+  coordenador TEXT,
+  cidade TEXT,
+  ativo BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Coordenadores
+CREATE TABLE IF NOT EXISTS coordenadores (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  nome TEXT NOT NULL UNIQUE,
+  email TEXT,
+  telefone TEXT,
+  ativo BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Indústrias
+CREATE TABLE IF NOT EXISTS industrias (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  nome TEXT NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Produtos Vinculados
+CREATE TABLE IF NOT EXISTS produtos (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  industria_nome TEXT NOT NULL,
+  nome TEXT NOT NULL,
+  unidade_padrao TEXT DEFAULT 'un',
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(industria_nome, nome)
+);
+
+-- 3. HABILITAR PERMISSÕES DE ACESSO (Row Level Security - RLS)
+-- Permite que o sistema leia, insira, atualize e exclua registros
+ALTER TABLE validades ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Permissao total validades" ON validades;
+CREATE POLICY "Permissao total validades" ON validades FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE lojas ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Permissao total lojas" ON lojas;
+CREATE POLICY "Permissao total lojas" ON lojas FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE coordenadores ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Permissao total coordenadores" ON coordenadores;
+CREATE POLICY "Permissao total coordenadores" ON coordenadores FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE industrias ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Permissao total industrias" ON industrias;
+CREATE POLICY "Permissao total industrias" ON industrias FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE produtos ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Permissao total produtos" ON produtos;
+CREATE POLICY "Permissao total produtos" ON produtos FOR ALL USING (true) WITH CHECK (true);
+`;
+
+export const SupabaseModal: React.FC<SupabaseModalProps> = ({
+  isOpen,
+  onClose,
+  currentConfig,
+  onSaveConfig,
+}) => {
+  const [url, setUrl] = useState(currentConfig.url || '');
+  const [anonKey, setAnonKey] = useState(currentConfig.anonKey || '');
+  const [tableName, setTableName] = useState(currentConfig.tableName || 'validades');
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [isTesting, setIsTesting] = useState(false);
+  const [copiedSql, setCopiedSql] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  if (!isOpen) return null;
+
+  const handleTest = async () => {
+    setIsTesting(true);
+    setTestResult(null);
+    const cleanedUrl = cleanSupabaseUrl(url);
+    const cleanedTable = cleanTableName(tableName);
+    // Atualiza o estado visual caso tenha sido colada com barras ou caminhos extras
+    if (cleanedUrl && cleanedUrl !== url) setUrl(cleanedUrl);
+    if (cleanedTable && cleanedTable !== tableName) setTableName(cleanedTable);
+
+    const res = await testSupabaseConnection(cleanedUrl, anonKey.trim(), cleanedTable);
+    setTestResult(res);
+    setIsTesting(false);
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSaving(true);
+    const cleanedUrl = cleanSupabaseUrl(url);
+    const cleanedTable = cleanTableName(tableName);
+    const cleanedKey = anonKey.trim();
+    const isConn = Boolean(cleanedUrl && cleanedKey);
+
+    await onSaveConfig({
+      url: cleanedUrl,
+      anonKey: cleanedKey,
+      tableName: cleanedTable,
+      isConnected: isConn,
+    });
+    setIsSaving(false);
+    onClose();
+  };
+
+  const handleCopySql = () => {
+    navigator.clipboard.writeText(SQL_INSTRUCTIONS);
+    setCopiedSql(true);
+    setTimeout(() => setCopiedSql(false), 2000);
+  };
+
+  const handleDisconnect = async () => {
+    setUrl('');
+    setAnonKey('');
+    setTestResult(null);
+    await onSaveConfig({
+      url: '',
+      anonKey: '',
+      tableName: 'validades',
+      isConnected: false,
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-fade-in">
+      <div className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden max-h-[90vh] flex flex-col">
+        {/* Top Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/70">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100">
+              <Database className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-slate-900">
+                Conectar com o Supabase
+              </h3>
+              <p className="text-xs text-slate-500">
+                Sincronize o controle de validade em tempo real na nuvem
+              </p>
+            </div>
+          </div>
+          <button
+            id="btn-fechar-modal-supabase"
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Modal Body */}
+        <div className="p-6 overflow-y-auto space-y-5 text-sm">
+          {/* Status Atual */}
+          <div
+            className={`p-3.5 rounded-xl border flex items-center justify-between gap-3 ${
+              currentConfig.isConnected && currentConfig.url
+                ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900'
+                : 'bg-amber-50/70 border-amber-200 text-amber-900'
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              <span
+                className={`w-2.5 h-2.5 rounded-full ${
+                  currentConfig.isConnected && currentConfig.url
+                    ? 'bg-emerald-500 animate-pulse'
+                    : 'bg-amber-500'
+                }`}
+              />
+              <span className="font-semibold text-xs sm:text-sm">
+                {currentConfig.isConnected && currentConfig.url
+                  ? 'Supabase Ativo & Conectado'
+                  : 'Modo Local (Armazenamento offline do navegador)'}
+              </span>
+            </div>
+            {currentConfig.url && (
+              <button
+                type="button"
+                onClick={handleDisconnect}
+                className="text-xs text-slate-600 hover:text-red-600 underline cursor-pointer"
+              >
+                Desconectar
+              </button>
+            )}
+          </div>
+
+          <form onSubmit={handleSave} className="space-y-4">
+            {/* Supabase URL */}
+            <div>
+              <label
+                htmlFor="input-supabase-url"
+                className="block text-xs font-semibold text-slate-700 mb-1"
+              >
+                Project URL do Supabase
+              </label>
+              <input
+                id="input-supabase-url"
+                type="url"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="https://xyzcompany.supabase.co"
+                className="w-full h-10 px-3 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+              <p className="text-[11px] text-slate-400 mt-1">
+                Encontrado em <em>Project Settings &gt; API</em> no painel do Supabase.
+              </p>
+            </div>
+
+            {/* Supabase Anon Key */}
+            <div>
+              <label
+                htmlFor="input-supabase-key"
+                className="block text-xs font-semibold text-slate-700 mb-1"
+              >
+                Anon Public Key (chave pública do Supabase)
+              </label>
+              <input
+                id="input-supabase-key"
+                type="password"
+                value={anonKey}
+                onChange={(e) => setAnonKey(e.target.value)}
+                placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                className="w-full h-10 px-3 text-sm font-mono bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+              <p className="text-[11px] text-slate-400 mt-1">
+                Chave anônima pública <code>anon / public</code>.
+              </p>
+            </div>
+
+            {/* Supabase Table Name */}
+            <div>
+              <label
+                htmlFor="input-supabase-table"
+                className="block text-xs font-semibold text-slate-700 mb-1"
+              >
+                Nome da Tabela no Supabase
+              </label>
+              <input
+                id="input-supabase-table"
+                type="text"
+                value={tableName}
+                onChange={(e) => setTableName(e.target.value)}
+                placeholder="validades"
+                className="w-full h-10 px-3 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
+              />
+              <p className="text-[11px] text-slate-400 mt-1">
+                Padrão: <code>validades</code> (ou informe o nome da sua tabela se criou com outro nome).
+              </p>
+            </div>
+
+            {/* Test result message */}
+            {testResult && (
+              <div
+                className={`p-3.5 rounded-xl border text-xs flex items-start gap-2.5 ${
+                  testResult.success
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                    : 'bg-red-50 border-red-200 text-red-800'
+                }`}
+              >
+                {testResult.success ? (
+                  <Check className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                )}
+                <div className="space-y-1">
+                  <div className="font-semibold">
+                    {testResult.success ? 'Conexão Estabelecida com Sucesso!' : 'Falha na Conexão com o Supabase'}
+                  </div>
+                  <div>{testResult.message}</div>
+                </div>
+              </div>
+            )}
+
+            {/* Actions for testing / saving */}
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+              <button
+                id="btn-testar-conexao-supabase"
+                type="button"
+                onClick={handleTest}
+                disabled={isTesting || !url || !anonKey}
+                className="inline-flex items-center gap-1.5 h-9 px-3.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg disabled:opacity-40 transition cursor-pointer"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isTesting ? 'animate-spin' : ''}`} />
+                <span>{isTesting ? 'Testando...' : 'Testar Conexão'}</span>
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="h-9 px-4 text-xs font-medium text-slate-600 hover:text-slate-800 rounded-lg cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  id="btn-salvar-supabase"
+                  type="submit"
+                  disabled={isSaving}
+                  className="h-9 px-4 text-xs font-medium bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition shadow-xs cursor-pointer"
+                >
+                  {isSaving ? 'Salvando...' : 'Salvar e Conectar'}
+                </button>
+              </div>
+            </div>
+          </form>
+
+          {/* SQL Instructions box */}
+          <div className="mt-4 pt-4 border-t border-slate-100">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-800">
+                <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                <span>Script SQL para criar a tabela no Supabase:</span>
+              </div>
+              <button
+                id="btn-copiar-sql-supabase"
+                type="button"
+                onClick={handleCopySql}
+                className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 hover:text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-md transition cursor-pointer"
+              >
+                {copiedSql ? (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Copiado!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Copiar SQL</span>
+                  </>
+                )}
+              </button>
+            </div>
+            <pre className="p-3 bg-slate-900 text-slate-100 rounded-xl text-xs font-mono overflow-x-auto leading-relaxed border border-slate-800 select-all">
+              {SQL_INSTRUCTIONS}
+            </pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
