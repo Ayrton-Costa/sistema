@@ -18,7 +18,7 @@ import {
   MapPin,
   UserCheck,
 } from 'lucide-react';
-import { ItemValidade, FiltroStatus } from '../types';
+import { ItemValidade, FiltroStatus, ProdutoCatalogo } from '../types';
 import {
   calcularDiasRestantes,
   obterStatusValidade,
@@ -28,6 +28,9 @@ import {
 
 interface ProductListProps {
   items: ItemValidade[];
+  catalogoLojas?: Array<{ nome: string; estado?: string; coordenador?: string }>;
+  catalogoCoordenadores?: string[];
+  catalogoProdutos?: ProdutoCatalogo[];
   filtroStatus: FiltroStatus;
   aoMudarFiltroStatus: (filtro: FiltroStatus) => void;
   onUpdate: (item: ItemValidade) => Promise<void>;
@@ -39,6 +42,9 @@ type SortOrder = 'vencimento_asc' | 'vencimento_desc' | 'industria_asc' | 'loja_
 
 export const ProductList: React.FC<ProductListProps> = ({
   items,
+  catalogoLojas = [],
+  catalogoCoordenadores = [],
+  catalogoProdutos = [],
   filtroStatus,
   aoMudarFiltroStatus,
   onUpdate,
@@ -46,15 +52,70 @@ export const ProductList: React.FC<ProductListProps> = ({
   isLoading,
 }) => {
   const [busca, setBusca] = useState('');
-  const [industriaSelecionada, setIndustriaSelecionada] = useState<string>('todas');
+  const [coordenadorSelecionado, setCoordenadorSelecionado] = useState<string>('todos');
   const [lojaSelecionada, setLojaSelecionada] = useState<string>('todas');
   const [estadoSelecionado, setEstadoSelecionado] = useState<string>('todos');
-  const [coordenadorSelecionado, setCoordenadorSelecionado] = useState<string>('todos');
+  const [industriaSelecionada, setIndustriaSelecionada] = useState<string>('todas');
+  const [produtoSelecionado, setProdutoSelecionado] = useState<string>('todos');
   const [ordenacao, setOrdenacao] = useState<SortOrder>('vencimento_asc');
 
   // Estado de edição inline
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<ItemValidade>>({});
+
+  // Lista única de coordenadores cadastrados para filtro (tanto dos itens quanto do catálogo)
+  const coordenadores = useMemo(() => {
+    const set = new Set<string>();
+    items.forEach((it) => {
+      if (it.coordenador) set.add(it.coordenador.trim());
+    });
+    catalogoCoordenadores.forEach((c) => {
+      if (c) set.add(c.trim());
+    });
+    catalogoLojas.forEach((l) => {
+      if (l.coordenador) set.add(l.coordenador.trim());
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [items, catalogoCoordenadores, catalogoLojas]);
+
+  // Lista de lojas vinculadas ao coordenador selecionado
+  const lojasDoCoordenador = useMemo(() => {
+    const set = new Set<string>();
+    // Lojas dos itens
+    items.forEach((it) => {
+      if (!it.loja) return;
+      if (coordenadorSelecionado === 'todos') {
+        set.add(it.loja.trim());
+      } else if (it.coordenador && it.coordenador.trim() === coordenadorSelecionado) {
+        set.add(it.loja.trim());
+      }
+    });
+
+    // Lojas cadastradas no catálogo do Supabase
+    catalogoLojas.forEach((l) => {
+      if (!l.nome) return;
+      if (coordenadorSelecionado === 'todos') {
+        set.add(l.nome.trim());
+      } else if (l.coordenador && l.coordenador.trim() === coordenadorSelecionado) {
+        set.add(l.nome.trim());
+      }
+    });
+
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [items, catalogoLojas, coordenadorSelecionado]);
+
+  // Se o coordenador mudou e a loja selecionada não pertence a ele, reseta a loja para "todas"
+  const handleMudarCoordenador = (novoCoord: string) => {
+    setCoordenadorSelecionado(novoCoord);
+    if (novoCoord !== 'todos' && lojaSelecionada !== 'todas') {
+      const lojaPertenceAoCoord =
+        items.some((it) => it.loja?.trim() === lojaSelecionada && it.coordenador?.trim() === novoCoord) ||
+        catalogoLojas.some((l) => l.nome?.trim() === lojaSelecionada && l.coordenador?.trim() === novoCoord);
+      if (!lojaPertenceAoCoord) {
+        setLojaSelecionada('todas');
+      }
+    }
+  };
 
   // Lista única de indústrias cadastradas para filtro
   const industrias = useMemo(() => {
@@ -62,17 +123,31 @@ export const ProductList: React.FC<ProductListProps> = ({
     items.forEach((it) => {
       if (it.industria) set.add(it.industria.trim());
     });
-    return Array.from(set).sort();
-  }, [items]);
+    catalogoProdutos.forEach((p) => {
+      if (p.industria) set.add(p.industria.trim());
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [items, catalogoProdutos]);
 
-  // Lista única de lojas cadastradas para filtro
-  const lojas = useMemo(() => {
+  // Lista de produtos disponíveis para filtro (filtrados pela indústria selecionada, se houver)
+  const produtosFiltroOpcoes = useMemo(() => {
     const set = new Set<string>();
     items.forEach((it) => {
-      if (it.loja) set.add(it.loja.trim());
+      if (it.produto?.trim()) {
+        if (industriaSelecionada === 'todas' || it.industria === industriaSelecionada) {
+          set.add(it.produto.trim());
+        }
+      }
     });
-    return Array.from(set).sort();
-  }, [items]);
+    catalogoProdutos.forEach((p) => {
+      if (p.nome?.trim()) {
+        if (industriaSelecionada === 'todas' || p.industria === industriaSelecionada) {
+          set.add(p.nome.trim());
+        }
+      }
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [items, catalogoProdutos, industriaSelecionada]);
 
   // Lista única de estados cadastrados para filtro
   const estados = useMemo(() => {
@@ -80,17 +155,11 @@ export const ProductList: React.FC<ProductListProps> = ({
     items.forEach((it) => {
       if (it.estado) set.add(it.estado.trim().toUpperCase());
     });
-    return Array.from(set).sort();
-  }, [items]);
-
-  // Lista única de coordenadores cadastrados para filtro
-  const coordenadores = useMemo(() => {
-    const set = new Set<string>();
-    items.forEach((it) => {
-      if (it.coordenador) set.add(it.coordenador.trim());
+    catalogoLojas.forEach((l) => {
+      if (l.estado) set.add(l.estado.trim().toUpperCase());
     });
     return Array.from(set).sort();
-  }, [items]);
+  }, [items, catalogoLojas]);
 
   // Filtragem e ordenação
   const itensFiltrados = useMemo(() => {
@@ -99,14 +168,15 @@ export const ProductList: React.FC<ProductListProps> = ({
         // Filtro de texto geral
         if (busca.trim()) {
           const termo = busca.toLowerCase();
-          const matchInd = item.industria.toLowerCase().includes(termo);
-          const matchProd = item.produto.toLowerCase().includes(termo);
-          const matchLoja = item.loja ? item.loja.toLowerCase().includes(termo) : false;
-          const matchEst = item.estado ? item.estado.toLowerCase().includes(termo) : false;
-          const matchCoord = item.coordenador ? item.coordenador.toLowerCase().includes(termo) : false;
-          const matchLote = item.lote ? item.lote.toLowerCase().includes(termo) : false;
-          const matchObs = item.observacoes ? item.observacoes.toLowerCase().includes(termo) : false;
-          if (!matchInd && !matchProd && !matchLoja && !matchEst && !matchCoord && !matchLote && !matchObs) {
+          const matchCod = item.codigo != null ? String(item.codigo).toLowerCase().includes(termo) : false;
+          const matchInd = item.industria ? String(item.industria).toLowerCase().includes(termo) : false;
+          const matchProd = item.produto ? String(item.produto).toLowerCase().includes(termo) : false;
+          const matchLoja = item.loja ? String(item.loja).toLowerCase().includes(termo) : false;
+          const matchEst = item.estado ? String(item.estado).toLowerCase().includes(termo) : false;
+          const matchCoord = item.coordenador ? String(item.coordenador).toLowerCase().includes(termo) : false;
+          const matchLote = item.lote ? String(item.lote).toLowerCase().includes(termo) : false;
+          const matchObs = item.observacoes ? String(item.observacoes).toLowerCase().includes(termo) : false;
+          if (!matchCod && !matchInd && !matchProd && !matchLoja && !matchEst && !matchCoord && !matchLote && !matchObs) {
             return false;
           }
         }
@@ -114,6 +184,13 @@ export const ProductList: React.FC<ProductListProps> = ({
         // Filtro de indústria
         if (industriaSelecionada !== 'todas') {
           if (item.industria !== industriaSelecionada) return false;
+        }
+
+        // Filtro de produto específico
+        if (produtoSelecionado !== 'todos') {
+          if (item.produto.trim().toLowerCase() !== produtoSelecionado.trim().toLowerCase()) {
+            return false;
+          }
         }
 
         // Filtro de loja
@@ -160,7 +237,7 @@ export const ProductList: React.FC<ProductListProps> = ({
         }
         return 0;
       });
-  }, [items, busca, industriaSelecionada, lojaSelecionada, estadoSelecionado, coordenadorSelecionado, filtroStatus, ordenacao]);
+  }, [items, busca, industriaSelecionada, produtoSelecionado, lojaSelecionada, estadoSelecionado, coordenadorSelecionado, filtroStatus, ordenacao]);
 
   const handleStartEdit = (item: ItemValidade) => {
     setEditingId(item.id);
@@ -229,24 +306,57 @@ export const ProductList: React.FC<ProductListProps> = ({
           {/* Filtros Dropdowns e Ordenação */}
           <div className="flex flex-wrap items-center gap-2">
             {/* Filtro Loja */}
-            {lojas.length > 0 && (
-              <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 h-10">
-                <Store className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            {/* Filtro Coordenador (Primeiro na precedência gerencial) */}
+            {coordenadores.length > 0 && (
+              <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 h-10 shadow-2xs">
+                <UserCheck className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                <div className="flex flex-col">
+                  <span className="text-[9px] uppercase font-bold text-indigo-600 tracking-wider leading-none">
+                    Coordenador
+                  </span>
+                  <select
+                    id="select-filtro-coordenador"
+                    value={coordenadorSelecionado}
+                    onChange={(e) => handleMudarCoordenador(e.target.value)}
+                    className="text-xs bg-transparent focus:outline-none font-semibold text-slate-800 cursor-pointer max-w-[140px] truncate"
+                  >
+                    <option value="todos">Todos Coord. ({coordenadores.length})</option>
+                    {coordenadores.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+
+            {/* Filtro Loja (Vinculado ao Coordenador selecionado) */}
+            <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 h-10 shadow-2xs">
+              <Store className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+              <div className="flex flex-col">
+                <span className="text-[9px] uppercase font-bold text-blue-600 tracking-wider leading-none">
+                  {coordenadorSelecionado !== 'todos' ? `Lojas de ${coordenadorSelecionado}` : 'Loja'}
+                </span>
                 <select
                   id="select-filtro-loja"
                   value={lojaSelecionada}
                   onChange={(e) => setLojaSelecionada(e.target.value)}
-                  className="text-xs bg-transparent focus:outline-none font-medium text-slate-700 cursor-pointer max-w-[130px] truncate"
+                  className="text-xs bg-transparent focus:outline-none font-semibold text-slate-800 cursor-pointer max-w-[150px] truncate"
                 >
-                  <option value="todas">Todas as Lojas ({lojas.length})</option>
-                  {lojas.map((l) => (
+                  <option value="todas">
+                    {coordenadorSelecionado !== 'todos'
+                      ? `Todas as Lojas (${lojasDoCoordenador.length})`
+                      : `Todas as Lojas (${lojasDoCoordenador.length})`}
+                  </option>
+                  {lojasDoCoordenador.map((l) => (
                     <option key={l} value={l}>
                       {l}
                     </option>
                   ))}
                 </select>
               </div>
-            )}
+            </div>
 
             {/* Filtro Estado */}
             {estados.length > 0 && (
@@ -268,26 +378,6 @@ export const ProductList: React.FC<ProductListProps> = ({
               </div>
             )}
 
-            {/* Filtro Coordenador */}
-            {coordenadores.length > 0 && (
-              <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 h-10">
-                <UserCheck className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                <select
-                  id="select-filtro-coordenador"
-                  value={coordenadorSelecionado}
-                  onChange={(e) => setCoordenadorSelecionado(e.target.value)}
-                  className="text-xs bg-transparent focus:outline-none font-medium text-slate-700 cursor-pointer max-w-[130px] truncate"
-                >
-                  <option value="todos">Todos Coord. ({coordenadores.length})</option>
-                  {coordenadores.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
             {/* Filtro Indústria */}
             {industrias.length > 0 && (
               <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 h-10">
@@ -295,13 +385,37 @@ export const ProductList: React.FC<ProductListProps> = ({
                 <select
                   id="select-filtro-industria"
                   value={industriaSelecionada}
-                  onChange={(e) => setIndustriaSelecionada(e.target.value)}
+                  onChange={(e) => {
+                    setIndustriaSelecionada(e.target.value);
+                    setProdutoSelecionado('todos');
+                  }}
                   className="text-xs bg-transparent focus:outline-none font-medium text-slate-700 cursor-pointer max-w-[130px] truncate"
                 >
                   <option value="todas">Todas as Indústrias ({industrias.length})</option>
                   {industrias.map((ind) => (
                     <option key={ind} value={ind}>
                       {ind}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Filtro de Produto da Base */}
+            {produtosFiltroOpcoes.length > 0 && (
+              <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 h-10">
+                <Package className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                <select
+                  id="select-filtro-produto"
+                  value={produtoSelecionado}
+                  onChange={(e) => setProdutoSelecionado(e.target.value)}
+                  className="text-xs bg-transparent focus:outline-none font-medium text-slate-700 cursor-pointer max-w-[150px] truncate"
+                  title="Filtrar por produto específico"
+                >
+                  <option value="todos">Todos os Produtos ({produtosFiltroOpcoes.length})</option>
+                  {produtosFiltroOpcoes.map((prod) => (
+                    <option key={prod} value={prod}>
+                      {prod}
                     </option>
                   ))}
                 </select>
@@ -399,6 +513,26 @@ export const ProductList: React.FC<ProductListProps> = ({
             No Prazo
           </button>
         </div>
+
+        {/* Notificação / Indicador de Coordenador Ativo */}
+        {coordenadorSelecionado !== 'todos' && (
+          <div className="flex items-center justify-between bg-indigo-50 border border-indigo-200 text-indigo-900 rounded-lg px-3 py-1.5 text-xs">
+            <div className="flex items-center gap-2">
+              <UserCheck className="w-4 h-4 text-indigo-600 shrink-0" />
+              <span>
+                Filtrando pelo Coordenador: <strong>{coordenadorSelecionado}</strong> — Mostrando apenas as{' '}
+                <strong>{lojasDoCoordenador.length} loja(s)</strong> sob sua supervisão.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleMudarCoordenador('todos')}
+              className="text-xs font-semibold text-indigo-700 hover:text-indigo-900 underline ml-2 cursor-pointer"
+            >
+              Ver todos os coordenadores
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Tabela de Produtos */}
@@ -429,10 +563,12 @@ export const ProductList: React.FC<ProductListProps> = ({
               <tr>
                 <td colSpan={9} className="py-12 text-center text-slate-500">
                   <Package className="w-8 h-8 mx-auto text-slate-300 mb-2" />
-                  <p className="font-medium text-slate-700">Nenhum produto encontrado</p>
-                  <p className="text-xs text-slate-400 mt-1">
-                    {busca || filtroStatus !== 'todos' || industriaSelecionada !== 'todas' || lojaSelecionada !== 'todas'
-                      ? 'Tente ajustar ou limpar os filtros de busca.'
+                  <p className="font-medium text-slate-700">Nenhum registro de validade encontrado</p>
+                  <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+                    {busca || filtroStatus !== 'todos' || industriaSelecionada !== 'todas' || lojaSelecionada !== 'todas' || produtoSelecionado !== 'todos'
+                      ? 'Tente ajustar ou limpar os filtros de busca acima.'
+                      : catalogoProdutos.length > 0
+                      ? `Você possui ${catalogoProdutos.length} produto(s) na base Supabase. Utilize o formulário acima ou a aba "Produtos da Base" para registrar lotes e validades.`
                       : 'Cadastre um novo item acima para iniciar o controle.'}
                   </p>
                 </td>
@@ -632,7 +768,14 @@ export const ProductList: React.FC<ProductListProps> = ({
 
                     {/* Produto */}
                     <td className="py-3 px-4 font-semibold text-slate-900">
-                      <div>{item.produto}</div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span>{item.produto}</span>
+                        {item.codigo && (
+                          <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 font-mono rounded text-[10px] font-normal border border-blue-100">
+                            Cód: {item.codigo}
+                          </span>
+                        )}
+                      </div>
                       {item.observacoes && (
                         <div className="text-[11px] text-slate-500 mt-0.5 sm:hidden line-clamp-1 font-normal">
                           {item.observacoes}

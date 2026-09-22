@@ -16,11 +16,14 @@ import {
   Trash2,
   ListPlus,
   Sparkles,
+  Barcode,
+  Search,
 } from 'lucide-react';
-import { ItemValidade } from '../types';
+import { ItemValidade, ProdutoCatalogo } from '../types';
 
 interface ItemPendente {
   idTemp: string;
+  codigo?: string;
   produto: string;
   quantidade: number;
   unidade: string;
@@ -34,11 +37,13 @@ interface QuickAddFormProps {
   onAddBatch?: (items: Array<Omit<ItemValidade, 'id' | 'created_at'>>) => Promise<void>;
   existingIndustries: string[];
   catalogoProdutosPorIndustria?: Record<string, string[]>;
+  catalogoProdutosDetalhadosSupabase?: ProdutoCatalogo[];
   catalogoIndustriasSupabase?: string[];
   catalogoCoordenadoresSupabase?: string[];
   catalogoLojasSupabase?: Array<{ nome: string; estado?: string; coordenador?: string }>;
   allItems?: ItemValidade[];
   isSaving: boolean;
+  prefilledProduct?: { produto: string; industria: string; codigo?: string; unidade?: string } | null;
 }
 
 const ESTADOS_BRASIL = [
@@ -52,12 +57,15 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
   onAddBatch,
   existingIndustries,
   catalogoProdutosPorIndustria = {},
+  catalogoProdutosDetalhadosSupabase = [],
   catalogoIndustriasSupabase = [],
   catalogoCoordenadoresSupabase = [],
   catalogoLojasSupabase = [],
   allItems = [],
   isSaving,
+  prefilledProduct,
 }) => {
+  const [codigo, setCodigo] = useState('');
   const [loja, setLoja] = useState('');
   const [estado, setEstado] = useState('');
   const [coordenador, setCoordenador] = useState('');
@@ -76,6 +84,27 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
 
   const produtoInputRef = useRef<HTMLInputElement>(null);
 
+  // Preenche dados quando um produto for selecionado a partir da aba "Produtos da Base"
+  React.useEffect(() => {
+    if (prefilledProduct) {
+      setProduto(prefilledProduct.produto);
+      if (prefilledProduct.industria && prefilledProduct.industria !== 'Geral') {
+        setIndustria(prefilledProduct.industria);
+      }
+      if (prefilledProduct.codigo != null) {
+        setCodigo(String(prefilledProduct.codigo));
+      }
+      if (prefilledProduct.unidade) {
+        setUnidade(prefilledProduct.unidade);
+      }
+      // Rola a tela suavemente para o formulário
+      const el = document.getElementById('form-inclusao-rapida');
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  }, [prefilledProduct]);
+
   // Lista única de coordenadores do Supabase (tanto da tabela de coordenadores quanto da tabela validades)
   const coordenadoresCadastrados = useMemo(() => {
     const set = new Set<string>();
@@ -91,17 +120,36 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
     return Array.from(set).sort();
   }, [allItems, catalogoCoordenadoresSupabase, catalogoLojasSupabase]);
 
-  // Lista única de lojas já existentes (tanto da tabela dedicada 'lojas' quanto de 'validades')
+  // Lista de lojas sugeridas: se um coordenador já foi selecionado/digitado, prioriza/mostra as lojas dele
   const lojasCadastradas = useMemo(() => {
-    const set = new Set<string>();
+    const coordTrim = coordenador.trim().toLowerCase();
+    const setLojasDoCoord = new Set<string>();
+    const setOutrasLojas = new Set<string>();
+
     catalogoLojasSupabase.forEach((l) => {
-      if (l.nome?.trim()) set.add(l.nome.trim());
+      if (!l.nome?.trim()) return;
+      if (coordTrim && l.coordenador?.trim().toLowerCase() === coordTrim) {
+        setLojasDoCoord.add(l.nome.trim());
+      } else {
+        setOutrasLojas.add(l.nome.trim());
+      }
     });
+
     allItems.forEach((it) => {
-      if (it.loja?.trim()) set.add(it.loja.trim());
+      if (!it.loja?.trim()) return;
+      if (coordTrim && it.coordenador?.trim().toLowerCase() === coordTrim) {
+        setLojasDoCoord.add(it.loja.trim());
+      } else {
+        setOutrasLojas.add(it.loja.trim());
+      }
     });
-    return Array.from(set).sort();
-  }, [allItems, catalogoLojasSupabase]);
+
+    if (coordTrim && setLojasDoCoord.size > 0) {
+      return [...Array.from(setLojasDoCoord).sort(), ...Array.from(setOutrasLojas).sort()];
+    }
+
+    return Array.from(new Set([...Array.from(setLojasDoCoord), ...Array.from(setOutrasLojas)])).sort();
+  }, [allItems, catalogoLojasSupabase, coordenador]);
 
   // Ao selecionar ou digitar uma loja cadastrada, preenche automaticamente Estado e Coordenador
   const handleMudarLoja = (nomeLoja: string) => {
@@ -129,52 +177,222 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
     }
   };
 
-  // Mostra estritamente as indústrias cadastradas no Supabase (tanto da tabela de validades quanto da tabela de indústrias)
+  // Ao selecionar um coordenador, se a loja atual não pertencer a ele, sugere as lojas vinculadas a ele
+  const handleMudarCoordenador = (nomeCoord: string) => {
+    setCoordenador(nomeCoord);
+    const coordTrim = nomeCoord.trim().toLowerCase();
+    if (!coordTrim) return;
+
+    // Se ainda não preencheu loja, ou a loja atual não é desse coordenador, pré-sugere a loja
+    if (!loja.trim()) {
+      const lojaDoCoord =
+        catalogoLojasSupabase.find((l) => l.coordenador?.trim().toLowerCase() === coordTrim) ||
+        allItems.find((it) => it.coordenador?.trim().toLowerCase() === coordTrim && it.loja);
+      if (lojaDoCoord) {
+        const nomeLoja = 'nome' in lojaDoCoord ? lojaDoCoord.nome : (lojaDoCoord as any).loja;
+        const estadoLoja = (lojaDoCoord as any).estado;
+        if (nomeLoja) {
+          setLoja(nomeLoja);
+          if (estadoLoja && !estado) setEstado(estadoLoja);
+        }
+      }
+    }
+  };
+
+  // Busca automática quando o usuário digita o código do produto
+  const handleCodigoChange = (novoCodigo: string) => {
+    setCodigo(novoCodigo);
+    const codLimpo = novoCodigo.trim().toLowerCase();
+    if (!codLimpo) return;
+
+    // 1. Procura primeiro no catálogo relacional detalhado do Supabase
+    if (catalogoProdutosDetalhadosSupabase && catalogoProdutosDetalhadosSupabase.length > 0) {
+      const matchCatalogo = catalogoProdutosDetalhadosSupabase.find((p) => {
+        const codP = (p.codigo != null ? String(p.codigo) : '').trim().toLowerCase();
+        return codP && codP === codLimpo;
+      });
+
+      if (matchCatalogo) {
+        setProduto(matchCatalogo.nome);
+        if (matchCatalogo.industria && !industria) {
+          setIndustria(matchCatalogo.industria);
+        }
+        if (matchCatalogo.unidade_padrao) {
+          setUnidade(matchCatalogo.unidade_padrao);
+        }
+        return;
+      }
+    }
+
+    // 2. Procura nos itens já salvos no Supabase (tabela validades)
+    const matchValidade = allItems.find((it) => {
+      const codIt = (it.codigo != null ? String(it.codigo) : '').trim().toLowerCase();
+      return codIt && codIt === codLimpo;
+    });
+
+    if (matchValidade) {
+      setProduto(matchValidade.produto);
+      if (matchValidade.industria && !industria) {
+        setIndustria(matchValidade.industria);
+      }
+      if (matchValidade.unidade) {
+        setUnidade(matchValidade.unidade);
+      }
+    }
+  };
+
+  // Ao selecionar um produto pelo nome, preenche também o código e a indústria se existirem cadastrados
+  const handleProdutoChange = (novoNomeProduto: string) => {
+    setProduto(novoNomeProduto);
+    const nomeLimpo = novoNomeProduto.trim().toLowerCase();
+    if (!nomeLimpo) return;
+
+    // 1. Busca no catálogo detalhado de produtos do Supabase
+    if (catalogoProdutosDetalhadosSupabase && catalogoProdutosDetalhadosSupabase.length > 0) {
+      const match = catalogoProdutosDetalhadosSupabase.find(
+        (p) => p.nome.trim().toLowerCase() === nomeLimpo
+      );
+      if (match) {
+        if (match.codigo && !codigo.trim()) setCodigo(String(match.codigo));
+        if (match.industria && !industria.trim()) setIndustria(match.industria);
+        if (match.unidade_padrao) setUnidade(match.unidade_padrao);
+        return;
+      }
+    }
+
+    // 2. Busca no mapeamento de catalogoProdutosPorIndustria
+    if (!industria.trim()) {
+      for (const [ind, prods] of Object.entries(catalogoProdutosPorIndustria)) {
+        if (Array.isArray(prods) && prods.some((p) => p.trim().toLowerCase() === nomeLimpo)) {
+          setIndustria(ind);
+          break;
+        }
+      }
+    }
+
+    // 3. Busca em allItems
+    const matchItem = allItems.find(
+      (it) => it.produto.trim().toLowerCase() === nomeLimpo
+    );
+    if (matchItem) {
+      if (matchItem.codigo && !codigo.trim()) setCodigo(String(matchItem.codigo));
+      if (matchItem.industria && !industria.trim()) setIndustria(matchItem.industria);
+      if (matchItem.unidade) setUnidade(matchItem.unidade);
+    }
+  };
+
+  // Sugestões de códigos disponíveis no Supabase
+  const sugestoesCodigos = useMemo(() => {
+    const mapCodigos = new Map<string, string>(); // codigo -> descricao
+    if (catalogoProdutosDetalhadosSupabase) {
+      catalogoProdutosDetalhadosSupabase.forEach((p) => {
+        const codStr = p.codigo != null ? String(p.codigo).trim() : '';
+        if (codStr) {
+          mapCodigos.set(codStr, `${codStr} - ${p.nome || ''} (${p.industria || ''})`);
+        }
+      });
+    }
+    allItems.forEach((it) => {
+      const codStr = it.codigo != null ? String(it.codigo).trim() : '';
+      if (codStr && !mapCodigos.has(codStr)) {
+        mapCodigos.set(codStr, `${codStr} - ${it.produto || ''} (${it.industria || ''})`);
+      }
+    });
+    return Array.from(mapCodigos.entries()).map(([cod, label]) => ({ codigo: cod, label }));
+  }, [catalogoProdutosDetalhadosSupabase, allItems]);
+
+  // Mostra estritamente as indústrias cadastradas no Supabase (tanto da tabela de validades, produtos quanto indústrias)
   const sugestoesIndustrias = useMemo(() => {
-    const combined = Array.from(
-      new Set([
-        ...catalogoIndustriasSupabase.filter(Boolean),
-        ...existingIndustries.filter(Boolean),
-      ])
-    ).sort();
+    const setInds = new Set<string>();
+
+    catalogoIndustriasSupabase.forEach((i) => {
+      if (i?.trim()) setInds.add(i.trim());
+    });
+    existingIndustries.forEach((i) => {
+      if (i?.trim()) setInds.add(i.trim());
+    });
+    if (catalogoProdutosDetalhadosSupabase) {
+      catalogoProdutosDetalhadosSupabase.forEach((p) => {
+        if (p.industria?.trim()) setInds.add(p.industria.trim());
+      });
+    }
+    Object.keys(catalogoProdutosPorIndustria).forEach((ind) => {
+      if (ind?.trim()) setInds.add(ind.trim());
+    });
+
+    const combined = Array.from(setInds).sort((a, b) => a.localeCompare(b));
 
     if (!industria.trim()) return combined;
     return combined.filter((ind) =>
       ind.toLowerCase().includes(industria.toLowerCase())
     );
-  }, [existingIndustries, catalogoIndustriasSupabase, industria]);
+  }, [existingIndustries, catalogoIndustriasSupabase, catalogoProdutosDetalhadosSupabase, catalogoProdutosPorIndustria, industria]);
 
-  // AUTOMÁTICO: Mostra SOMENTE os produtos cadastrados no Supabase para a indústria selecionada
+  // AUTOMÁTICO: Mostra os produtos cadastrados no Supabase filtrados pela indústria selecionada,
+  // ou TODOS os produtos cadastrados no Supabase se nenhuma indústria foi escolhida ainda.
   const sugestoesProdutosPorIndustria = useMemo(() => {
-    if (!industria.trim()) return [];
-    const indNormalizada = industria.trim().toLowerCase();
     const setProds = new Set<string>();
 
-    // 1. Produtos já cadastrados no Supabase para esta indústria (na tabela validades)
-    allItems.forEach((it) => {
-      if (it.industria && it.industria.trim().toLowerCase() === indNormalizada && it.produto?.trim()) {
-        setProds.add(it.produto.trim());
-      }
-    });
+    if (industria.trim()) {
+      const indNormalizada = industria.trim().toLowerCase();
 
-    // 2. Produtos vinculados no catálogo do Supabase (tabela produtos vinculada a industrias)
-    if (Array.isArray(catalogoProdutosPorIndustria[indNormalizada])) {
-      catalogoProdutosPorIndustria[indNormalizada].forEach((p) => {
-        if (p?.trim()) setProds.add(p.trim());
+      // 1. Produtos já cadastrados no Supabase para esta indústria (na tabela validades)
+      allItems.forEach((it) => {
+        if (it.industria && it.industria.trim().toLowerCase() === indNormalizada && it.produto?.trim()) {
+          setProds.add(it.produto.trim());
+        }
       });
+
+      // 2. Produtos vinculados no catálogo do Supabase (tabela produtos)
+      if (Array.isArray(catalogoProdutosPorIndustria[indNormalizada])) {
+        catalogoProdutosPorIndustria[indNormalizada].forEach((p) => {
+          if (p?.trim()) setProds.add(p.trim());
+        });
+      } else {
+        for (const [key, prods] of Object.entries(catalogoProdutosPorIndustria)) {
+          if (key.trim().toLowerCase() === indNormalizada && Array.isArray(prods)) {
+            (prods as string[]).forEach((p) => {
+              if (p?.trim()) setProds.add(p.trim());
+            });
+          }
+        }
+      }
+
+      // 3. Produtos detalhados com indústria correspondente
+      if (catalogoProdutosDetalhadosSupabase) {
+        catalogoProdutosDetalhadosSupabase.forEach((p) => {
+          if (p.industria && p.industria.trim().toLowerCase() === indNormalizada && p.nome?.trim()) {
+            setProds.add(p.nome.trim());
+          }
+        });
+      }
     } else {
-      // Caso haja correspondência de nome (ex: "Ambev" ou variações maiúsculas/minúsculas)
-      for (const [key, prods] of Object.entries(catalogoProdutosPorIndustria)) {
-        if (key.trim().toLowerCase() === indNormalizada && Array.isArray(prods)) {
-          (prods as string[]).forEach((p) => {
+      // Se nenhuma indústria foi selecionada ainda, sugere todos os produtos cadastrados no catálogo do Supabase
+      if (catalogoProdutosDetalhadosSupabase && catalogoProdutosDetalhadosSupabase.length > 0) {
+        catalogoProdutosDetalhadosSupabase.forEach((p) => {
+          if (p.nome?.trim()) setProds.add(p.nome.trim());
+        });
+      }
+
+      // Adiciona também produtos de catalogoProdutosPorIndustria
+      Object.values(catalogoProdutosPorIndustria).forEach((prods) => {
+        if (Array.isArray(prods)) {
+          prods.forEach((p) => {
             if (p?.trim()) setProds.add(p.trim());
           });
         }
-      }
+      });
+
+      // E produtos da tabela validades
+      allItems.forEach((it) => {
+        if (it.produto?.trim()) {
+          setProds.add(it.produto.trim());
+        }
+      });
     }
 
     return Array.from(setProds).sort();
-  }, [industria, allItems, catalogoProdutosPorIndustria]);
+  }, [industria, allItems, catalogoProdutosPorIndustria, catalogoProdutosDetalhadosSupabase]);
 
   const aplicarDataAtalho = (diasAdicionais: number) => {
     const target = new Date();
@@ -200,6 +418,7 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
 
     const novoPendente: ItemPendente = {
       idTemp: 'temp-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+      codigo: codigo.trim() || undefined,
       produto: produto.trim(),
       quantidade: Math.max(1, Number(quantidade) || 1),
       unidade: unidade || 'un',
@@ -211,6 +430,7 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
     setProdutosPendentes((prev) => [...prev, novoPendente]);
 
     // Limpa campos do produto mantendo Loja, Estado, Coordenador e Indústria
+    setCodigo('');
     setProduto('');
     setDataVencimento('');
     setLote('');
@@ -242,6 +462,7 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
     let itensParaEnviar: Array<Omit<ItemValidade, 'id' | 'created_at'>> = [
       ...produtosPendentes.map((p) => ({
         ...dadosBase,
+        codigo: p.codigo != null && String(p.codigo).trim() ? String(p.codigo).trim() : undefined,
         produto: p.produto,
         quantidade: p.quantidade,
         unidade: p.unidade,
@@ -254,6 +475,7 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
     if (produto.trim() && dataVencimento && industria.trim()) {
       itensParaEnviar.push({
         ...dadosBase,
+        codigo: codigo.trim() || undefined,
         produto: produto.trim(),
         quantidade: Math.max(1, Number(quantidade) || 1),
         unidade: unidade || 'un',
@@ -276,6 +498,7 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
 
     // Limpa a fila e os campos de produto
     setProdutosPendentes([]);
+    setCodigo('');
     setProduto('');
     setDataVencimento('');
     setLote('');
@@ -287,7 +510,7 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
   };
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-4 sm:p-5 mb-6">
+    <div id="form-inclusao-rapida" className="bg-white rounded-xl border border-slate-200 shadow-xs p-4 sm:p-5 mb-6">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
         <div className="flex items-center gap-2">
           <div className="p-1.5 bg-blue-50 text-blue-600 rounded-lg">
@@ -377,7 +600,7 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
                 type="text"
                 list="lista-coordenadores-cadastrados"
                 value={coordenador}
-                onChange={(e) => setCoordenador(e.target.value)}
+                onChange={(e) => handleMudarCoordenador(e.target.value)}
                 placeholder="Ex: Carlos Silva, Mariana..."
                 className="w-full h-11 sm:h-10 px-3 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-800"
               />
@@ -390,8 +613,44 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
           </div>
         </div>
 
-        {/* Linha 2: Indústria, Produto, Quantidade e Vencimento */}
+        {/* Linha 2: Código, Indústria, Produto, Quantidade e Vencimento */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3">
+          {/* Código do Produto (EAN / SKU) */}
+          <div className="lg:col-span-2">
+            <div className="flex items-center justify-between mb-1">
+              <label
+                htmlFor="input-codigo-produto"
+                className="block text-xs font-semibold text-slate-700 flex items-center gap-1"
+              >
+                <Barcode className="w-3.5 h-3.5 text-blue-600" />
+                <span>Cód. Produto</span>
+              </label>
+              {sugestoesCodigos.length > 0 && (
+                <span className="text-[10px] text-slate-500 font-medium">
+                  {sugestoesCodigos.length} no Supabase
+                </span>
+              )}
+            </div>
+            <div className="relative">
+              <input
+                id="input-codigo-produto"
+                type="text"
+                list="lista-codigos-supabase"
+                value={codigo}
+                onChange={(e) => handleCodigoChange(e.target.value)}
+                placeholder="Ex: 7891000..."
+                className="w-full h-11 sm:h-10 px-3 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-mono font-medium text-slate-800"
+              />
+              <datalist id="lista-codigos-supabase">
+                {sugestoesCodigos.map((item) => (
+                  <option key={item.codigo} value={item.codigo}>
+                    {item.label}
+                  </option>
+                ))}
+              </datalist>
+            </div>
+          </div>
+
           {/* Indústria / Fabricante */}
           <div className="lg:col-span-3">
             <div className="flex items-center justify-between mb-1">
@@ -410,7 +669,7 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
                 required
                 value={industria}
                 onChange={(e) => setIndustria(e.target.value)}
-                placeholder="Ex: Nestlé, Ambev, Bauducco..."
+                placeholder="Ex: Nestlé, Ambev..."
                 className="w-full h-11 sm:h-10 px-3 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium"
               />
               <datalist id="lista-industrias">
@@ -439,7 +698,7 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
           </div>
 
           {/* Produto com filtro automático pela indústria selecionada */}
-          <div className="lg:col-span-4">
+          <div className="lg:col-span-3">
             <div className="flex items-center justify-between mb-1">
               <label
                 htmlFor="input-produto"
@@ -447,9 +706,9 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
               >
                 Produto <span className="text-red-500">*</span>
               </label>
-              {industria && sugestoesProdutosPorIndustria.length > 0 && (
+              {sugestoesProdutosPorIndustria.length > 0 && (
                 <span className="text-[11px] text-blue-600 font-medium truncate max-w-[170px]">
-                  {sugestoesProdutosPorIndustria.length} produtos de {industria}
+                  {industria ? `${sugestoesProdutosPorIndustria.length} da ${industria}` : `${sugestoesProdutosPorIndustria.length} disponíveis`}
                 </span>
               )}
             </div>
@@ -460,11 +719,11 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
                 type="text"
                 list="lista-produtos-sugeridos"
                 value={produto}
-                onChange={(e) => setProduto(e.target.value)}
+                onChange={(e) => handleProdutoChange(e.target.value)}
                 placeholder={
                   industria
-                    ? `Escolha ou digite o produto da ${industria}...`
-                    : 'Digite ou selecione o produto...'
+                    ? `Produto da ${industria}...`
+                    : 'Digite ou selecione...'
                 }
                 className="w-full h-11 sm:h-10 px-3 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium"
               />
@@ -475,22 +734,18 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
               </datalist>
             </div>
 
-            {/* Chips rápidos dos produtos vinculados a esta indústria */}
-            {industria && sugestoesProdutosPorIndustria.length > 0 && (
+            {/* Chips rápidos dos produtos vinculados */}
+            {sugestoesProdutosPorIndustria.length > 0 && !produto && (
               <div className="flex items-center gap-1.5 overflow-x-auto py-1.5 no-scrollbar">
                 <span className="text-[10px] text-slate-600 font-semibold shrink-0 flex items-center gap-1">
                   <Sparkles className="w-3 h-3 text-purple-600" /> Toque:
                 </span>
-                {sugestoesProdutosPorIndustria.slice(0, 6).map((prodNome) => (
+                {sugestoesProdutosPorIndustria.slice(0, 5).map((prodNome) => (
                   <button
                     key={prodNome}
                     type="button"
-                    onClick={() => setProduto(prodNome)}
-                    className={`shrink-0 text-[11px] px-2.5 py-1 rounded-full border transition active:scale-95 ${
-                      produto === prodNome
-                        ? 'bg-purple-600 text-white border-purple-600 font-bold'
-                        : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
-                    }`}
+                    onClick={() => handleProdutoChange(prodNome)}
+                    className="shrink-0 text-[11px] px-2.5 py-1 rounded-full border border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200 transition active:scale-95"
                   >
                     {prodNome}
                   </button>
@@ -554,7 +809,7 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
           </div>
 
           {/* Data de Vencimento */}
-          <div className="lg:col-span-3">
+          <div className="lg:col-span-2">
             <label
               htmlFor="input-vencimento"
               className="block text-xs font-semibold text-slate-700 mb-1"
@@ -721,6 +976,11 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
                     <span className="font-semibold text-slate-800 truncate">
                       {item.produto}
                     </span>
+                    {item.codigo && (
+                      <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 font-mono rounded text-[10px] shrink-0">
+                        {item.codigo}
+                      </span>
+                    )}
                     <span className="px-1.5 py-0.5 bg-slate-100 text-slate-700 rounded font-medium shrink-0">
                       {item.quantidade} {item.unidade}
                     </span>

@@ -24,6 +24,8 @@ import {
   Minus,
   Sliders,
   Sparkles,
+  UserCheck,
+  Filter,
 } from 'lucide-react';
 import { ItemValidade, NivelHierarquia } from '../types';
 import {
@@ -35,6 +37,8 @@ import {
 
 interface HierarchyViewProps {
   items: ItemValidade[];
+  catalogoLojas?: Array<{ nome: string; estado?: string; coordenador?: string }>;
+  catalogoCoordenadores?: string[];
   onUpdate: (item: ItemValidade) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   isLoading: boolean;
@@ -56,12 +60,14 @@ interface TreeNode {
 const ROTULOS_NIVEL: Record<NivelHierarquia, { nome: string; icone: React.FC<any>; cor: string; bg: string }> = {
   loja: { nome: 'Loja', icone: Store, cor: 'text-blue-600', bg: 'bg-blue-50 border-blue-200' },
   industria: { nome: 'Indústria / Marca', icone: Building2, cor: 'text-purple-600', bg: 'bg-purple-50 border-purple-200' },
-  coordenador: { nome: 'Coordenador', icone: Package, cor: 'text-indigo-600', bg: 'bg-indigo-50 border-indigo-200' },
+  coordenador: { nome: 'Coordenador', icone: UserCheck, cor: 'text-indigo-600', bg: 'bg-indigo-50 border-indigo-200' },
   estado: { nome: 'Estado (UF)', icone: Store, cor: 'text-amber-600', bg: 'bg-amber-50 border-amber-200' },
 };
 
 export const HierarchyView: React.FC<HierarchyViewProps> = ({
   items,
+  catalogoLojas = [],
+  catalogoCoordenadores = [],
   onUpdate,
   onDelete,
   isLoading,
@@ -71,9 +77,77 @@ export const HierarchyView: React.FC<HierarchyViewProps> = ({
   const [mostrarPainelPrecedencia, setMostrarPainelPrecedencia] = useState(false);
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
 
+  // Filtro de coordenador e loja específico para a visualização hierárquica
+  const [coordenadorFiltro, setCoordenadorFiltro] = useState<string>('todos');
+  const [lojaFiltro, setLojaFiltro] = useState<string>('todas');
+
   // Estado de edição inline de produto
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<ItemValidade>>({});
+
+  // Lista única de coordenadores (itens + catálogo)
+  const listaCoordenadores = useMemo(() => {
+    const set = new Set<string>();
+    items.forEach((it) => {
+      if (it.coordenador) set.add(it.coordenador.trim());
+    });
+    catalogoCoordenadores.forEach((c) => {
+      if (c) set.add(c.trim());
+    });
+    catalogoLojas.forEach((l) => {
+      if (l.coordenador) set.add(l.coordenador.trim());
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [items, catalogoCoordenadores, catalogoLojas]);
+
+  // Lista de lojas vinculadas ao coordenador selecionado
+  const lojasDoCoordenador = useMemo(() => {
+    const set = new Set<string>();
+    items.forEach((it) => {
+      if (!it.loja) return;
+      if (coordenadorFiltro === 'todos') {
+        set.add(it.loja.trim());
+      } else if (it.coordenador && it.coordenador.trim() === coordenadorFiltro) {
+        set.add(it.loja.trim());
+      }
+    });
+
+    catalogoLojas.forEach((l) => {
+      if (!l.nome) return;
+      if (coordenadorFiltro === 'todos') {
+        set.add(l.nome.trim());
+      } else if (l.coordenador && l.coordenador.trim() === coordenadorFiltro) {
+        set.add(l.nome.trim());
+      }
+    });
+
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [items, catalogoLojas, coordenadorFiltro]);
+
+  const handleMudarCoordenadorFiltro = (novoCoord: string) => {
+    setCoordenadorFiltro(novoCoord);
+    if (novoCoord !== 'todos' && lojaFiltro !== 'todas') {
+      const pertence =
+        items.some((it) => it.loja?.trim() === lojaFiltro && it.coordenador?.trim() === novoCoord) ||
+        catalogoLojas.some((l) => l.nome?.trim() === lojaFiltro && l.coordenador?.trim() === novoCoord);
+      if (!pertence) {
+        setLojaFiltro('todas');
+      }
+    }
+  };
+
+  // Itens filtrados para alimentar a árvore hierárquica
+  const itensParaArvore = useMemo(() => {
+    return items.filter((it) => {
+      if (coordenadorFiltro !== 'todos') {
+        if (it.coordenador !== coordenadorFiltro) return false;
+      }
+      if (lojaFiltro !== 'todas') {
+        if (it.loja !== lojaFiltro) return false;
+      }
+      return true;
+    });
+  }, [items, coordenadorFiltro, lojaFiltro]);
 
   // Níveis disponíveis que podem ser adicionados
   const niveisPossiveis: NivelHierarquia[] = ['loja', 'industria', 'coordenador', 'estado'];
@@ -186,8 +260,8 @@ export const HierarchyView: React.FC<HierarchyViewProps> = ({
       });
     };
 
-    return construirNos(items, 0, 'root');
-  }, [items, hierarquia]);
+    return construirNos(itensParaArvore, 0, 'root');
+  }, [itensParaArvore, hierarquia]);
 
   // Expandir / Recolher Tudo
   const expandirTudo = () => {
@@ -437,7 +511,14 @@ export const HierarchyView: React.FC<HierarchyViewProps> = ({
                       <div key={prod.id} className="p-3 hover:bg-slate-50 transition-colors space-y-2">
                         <div className="flex items-start justify-between gap-2">
                           <div>
-                            <div className="font-bold text-slate-900 text-sm">{prod.produto}</div>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-bold text-slate-900 text-sm">{prod.produto}</span>
+                              {prod.codigo && (
+                                <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 font-mono rounded text-[10px] font-semibold border border-blue-100">
+                                  {prod.codigo}
+                                </span>
+                              )}
+                            </div>
                             <div className="text-[11px] text-slate-500 mt-0.5">
                               <span>{prod.industria}</span>
                               {prod.loja && <span> • {prod.loja}</span>}
@@ -615,7 +696,14 @@ export const HierarchyView: React.FC<HierarchyViewProps> = ({
                         return (
                           <tr key={prod.id} className="hover:bg-slate-50/80 transition-colors">
                             <td className="py-2.5 px-3">
-                              <div className="font-semibold text-slate-900">{prod.produto}</div>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-semibold text-slate-900">{prod.produto}</span>
+                                {prod.codigo && (
+                                  <span className="px-1.5 py-0.5 bg-blue-50 text-blue-700 font-mono rounded text-[10px] font-medium border border-blue-100">
+                                    Cód: {prod.codigo}
+                                  </span>
+                                )}
+                              </div>
                               <div className="text-[11px] text-slate-500 flex items-center gap-2">
                                 <span>{prod.industria}</span>
                                 {prod.loja && <span>• {prod.loja}</span>}
@@ -771,6 +859,81 @@ export const HierarchyView: React.FC<HierarchyViewProps> = ({
           >
             <Minimize2 className="w-3.5 h-3.5" />
           </button>
+        </div>
+      </div>
+
+      {/* Barra de Filtro Rápido de Coordenador e Lojas Associadas */}
+      <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-2xs flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Seletor de Coordenador */}
+          <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-2.5 h-10 shadow-2xs">
+            <UserCheck className="w-4 h-4 text-indigo-600 shrink-0" />
+            <div className="flex flex-col">
+              <span className="text-[9px] uppercase font-bold text-indigo-600 tracking-wider leading-none">
+                Filtrar Coordenador
+              </span>
+              <select
+                id="select-hierarquia-coordenador"
+                value={coordenadorFiltro}
+                onChange={(e) => handleMudarCoordenadorFiltro(e.target.value)}
+                className="text-xs bg-transparent focus:outline-none font-semibold text-slate-800 cursor-pointer max-w-[150px] truncate"
+              >
+                <option value="todos">Todos ({listaCoordenadores.length})</option>
+                {listaCoordenadores.map((coord) => (
+                  <option key={coord} value={coord}>
+                    {coord}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Seletor de Loja (vinculada ao coordenador) */}
+          <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-2.5 h-10 shadow-2xs">
+            <Store className="w-4 h-4 text-blue-600 shrink-0" />
+            <div className="flex flex-col">
+              <span className="text-[9px] uppercase font-bold text-blue-600 tracking-wider leading-none">
+                {coordenadorFiltro !== 'todos' ? `Lojas de ${coordenadorFiltro}` : 'Filtrar Loja'}
+              </span>
+              <select
+                id="select-hierarquia-loja"
+                value={lojaFiltro}
+                onChange={(e) => setLojaFiltro(e.target.value)}
+                className="text-xs bg-transparent focus:outline-none font-semibold text-slate-800 cursor-pointer max-w-[160px] truncate"
+              >
+                <option value="todas">
+                  {coordenadorFiltro !== 'todos'
+                    ? `Todas do Coord. (${lojasDoCoordenador.length})`
+                    : `Todas as Lojas (${lojasDoCoordenador.length})`}
+                </option>
+                {lojasDoCoordenador.map((loja) => (
+                  <option key={loja} value={loja}>
+                    {loja}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Resumo da Filtragem */}
+          {coordenadorFiltro !== 'todos' && (
+            <div className="inline-flex items-center gap-1.5 text-xs text-indigo-700 bg-indigo-50 px-2.5 py-1.5 rounded-lg border border-indigo-200 font-medium">
+              <span>
+                Mostrando <strong>{lojasDoCoordenador.length} loja(s)</strong> vinculadas a <strong>{coordenadorFiltro}</strong>
+              </span>
+              <button
+                type="button"
+                onClick={() => handleMudarCoordenadorFiltro('todos')}
+                className="text-[11px] underline font-bold ml-1 hover:text-indigo-900 cursor-pointer"
+              >
+                Limpar
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="text-xs text-slate-500 font-medium">
+          Exibindo <strong>{itensParaArvore.length}</strong> de <strong>{items.length}</strong> itens
         </div>
       </div>
 

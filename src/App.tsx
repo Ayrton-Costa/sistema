@@ -4,9 +4,11 @@ import { StatsCards } from './components/StatsCards';
 import { QuickAddForm } from './components/QuickAddForm';
 import { ProductList } from './components/ProductList';
 import { HierarchyView } from './components/HierarchyView';
+import { BaseProductsView } from './components/BaseProductsView';
+import { ProductRegistrationView } from './components/ProductRegistrationView';
 import { SupabaseModal } from './components/SupabaseModal';
 import { ImportExcelModal } from './components/ImportExcelModal';
-import { ItemValidade, FiltroStatus, SupabaseConfig, ModoVisualizacao } from './types';
+import { ItemValidade, FiltroStatus, SupabaseConfig, ModoVisualizacao, ProdutoCatalogo } from './types';
 import {
   getStoredSupabaseConfig,
   saveSupabaseConfig,
@@ -17,9 +19,13 @@ import {
   updateItemData,
   deleteItemData,
   clearLocalItems,
+  insertProdutoCatalogo,
+  insertBatchProdutosCatalogo,
+  deleteProdutoCatalogo,
+  syncAllPendingProdutosToSupabase,
 } from './lib/supabase';
 import { exportarParaExcel } from './lib/excel';
-import { AlertCircle, CheckCircle2, Info, X, Table, Network } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Info, X, Table, Network, Database, Sparkles, PackagePlus } from 'lucide-react';
 
 export default function App() {
   const [items, setItems] = useState<ItemValidade[]>([]);
@@ -27,9 +33,10 @@ export default function App() {
   const [catalogoSupabase, setCatalogoSupabase] = useState<{
     industrias: string[];
     produtosPorIndustria: Record<string, string[]>;
+    produtosDetalhados?: ProdutoCatalogo[];
     coordenadores: string[];
     lojas: Array<{ nome: string; estado?: string; coordenador?: string }>;
-  }>({ industrias: [], produtosPorIndustria: {}, coordenadores: [], lojas: [] });
+  }>({ industrias: [], produtosPorIndustria: {}, produtosDetalhados: [], coordenadores: [], lojas: [] });
   const [supabaseConfig, setSupabaseConfig] = useState<SupabaseConfig>(getStoredSupabaseConfig());
   const [filtroStatus, setFiltroStatus] = useState<FiltroStatus>('todos');
   const [isSupabaseModalOpen, setIsSupabaseModalOpen] = useState(false);
@@ -37,6 +44,12 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [prefilledProduct, setPrefilledProduct] = useState<{
+    produto: string;
+    industria: string;
+    codigo?: string;
+    unidade?: string;
+  } | null>(null);
 
   // Mensagens de notificação rápida
   const [banner, setBanner] = useState<{
@@ -72,9 +85,11 @@ export default function App() {
           `Erro ao consultar Supabase: ${res.error}. Verifique se a tabela "${config.tableName || 'validades'}" tem a política RLS ativa.`
         );
       } else if (config.isConnected && res.fromSupabase && !silencioso) {
+        const prodCount = catalogo.produtosDetalhados?.length || 0;
+        const msgProd = prodCount > 0 ? ` e ${prodCount} produto(s) na base` : '';
         exibirNotificacao(
           'sucesso',
-          `Conectado ao Supabase com sucesso! ${res.items.length} registro(s) carregado(s).`
+          `Conectado ao Supabase com sucesso! ${res.items.length} validade(s)${msgProd} carregado(s).`
         );
       }
     } catch (err: any) {
@@ -191,6 +206,160 @@ export default function App() {
     await carregarDados(atualizado);
   };
 
+  // Adicionar produto no catálogo (e Supabase)
+  const handleAddProdutoCatalogo = async (novoProd: {
+    codigo?: string;
+    nome: string;
+    industria: string;
+    unidade_padrao?: string;
+  }) => {
+    try {
+      const res = await insertProdutoCatalogo(novoProd, supabaseConfig);
+
+      setCatalogoSupabase((prev) => {
+        const ind = (res.produto.industria || 'Geral').trim();
+        const prod = res.produto.nome.trim();
+
+        const novasIndustrias = prev.industrias.includes(ind)
+          ? prev.industrias
+          : [...prev.industrias, ind];
+
+        const novoProdsMap = { ...prev.produtosPorIndustria };
+        const key = ind.toLowerCase();
+        if (!novoProdsMap[key]) novoProdsMap[key] = [];
+        if (!novoProdsMap[key].includes(prod)) {
+          novoProdsMap[key] = [...novoProdsMap[key], prod];
+        }
+
+        const prevDetalhados = prev.produtosDetalhados || [];
+        const filtered = prevDetalhados.filter(
+          (p) => !(p.nome.toLowerCase() === prod.toLowerCase() && p.industria.toLowerCase() === ind.toLowerCase())
+        );
+
+        return {
+          ...prev,
+          industrias: novasIndustrias,
+          produtosPorIndustria: novoProdsMap,
+          produtosDetalhados: [res.produto, ...filtered],
+        };
+      });
+
+      return {
+        success: true,
+        fromSupabase: res.fromSupabase,
+        error: res.error,
+        warning: res.warning,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        fromSupabase: false,
+        error: err.message,
+      };
+    }
+  };
+
+  // Adicionar lote de produtos no catálogo (e Supabase)
+  const handleBatchAddProdutosCatalogo = async (
+    produtosNovos: Array<{ codigo?: string; nome: string; industria: string; unidade_padrao?: string }>
+  ) => {
+    try {
+      const res = await insertBatchProdutosCatalogo(produtosNovos, supabaseConfig);
+
+      setCatalogoSupabase((prev) => {
+        const indSet = new Set(prev.industrias);
+        const novoProdsMap = { ...prev.produtosPorIndustria };
+        const prevDetalhados = prev.produtosDetalhados || [];
+        const novosKeys = new Set(res.produtos.map((p) => `${p.nome.toLowerCase()}_${p.industria.toLowerCase()}`));
+
+        res.produtos.forEach((p) => {
+          indSet.add(p.industria);
+          const k = p.industria.toLowerCase();
+          if (!novoProdsMap[k]) novoProdsMap[k] = [];
+          if (!novoProdsMap[k].includes(p.nome)) {
+            novoProdsMap[k] = [...novoProdsMap[k], p.nome];
+          }
+        });
+
+        const filtered = prevDetalhados.filter(
+          (p) => !novosKeys.has(`${p.nome.toLowerCase()}_${p.industria.toLowerCase()}`)
+        );
+
+        return {
+          ...prev,
+          industrias: Array.from(indSet),
+          produtosPorIndustria: novoProdsMap,
+          produtosDetalhados: [...res.produtos, ...filtered],
+        };
+      });
+
+      return {
+        success: true,
+        count: res.inseridosCount,
+        fromSupabase: res.fromSupabase,
+        error: res.error,
+        warning: res.warning,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        count: 0,
+        fromSupabase: false,
+        error: err.message,
+      };
+    }
+  };
+
+  // Excluir produto do catálogo
+  const handleDeleteProdutoCatalogo = async (
+    produtoNome: string,
+    industria: string,
+    produtoId?: string
+  ) => {
+    try {
+      await deleteProdutoCatalogo(produtoNome, industria, supabaseConfig, produtoId);
+
+      setCatalogoSupabase((prev) => {
+        const prevDetalhados = prev.produtosDetalhados || [];
+        const filtered = prevDetalhados.filter(
+          (p) => !(p.nome.toLowerCase() === produtoNome.toLowerCase() && p.industria.toLowerCase() === industria.toLowerCase())
+        );
+
+        return {
+          ...prev,
+          produtosDetalhados: filtered,
+        };
+      });
+    } catch (err) {
+      console.error('Erro ao deletar produto do catálogo:', err);
+    }
+  };
+
+  // Sincronizar todos os pendentes
+  const handleSyncPendingProdutos = async () => {
+    const pendentes = catalogoSupabase.produtosDetalhados?.filter((p) => p.syncedToSupabase === false) || [];
+    if (pendentes.length === 0) {
+      exibirNotificacao('aviso', 'Todos os produtos já estão sincronizados no Supabase.');
+      return;
+    }
+
+    try {
+      const res = await syncAllPendingProdutosToSupabase(pendentes, supabaseConfig);
+      if (res.success) {
+        if (res.warning) {
+          exibirNotificacao('aviso', `${res.syncedCount} produto(s) sincronizados com o Supabase! ${res.warning}`);
+        } else {
+          exibirNotificacao('sucesso', `${res.syncedCount} produto(s) sincronizados com o Supabase!`);
+        }
+        await carregarDados(supabaseConfig, true);
+      } else {
+        exibirNotificacao('erro', `Erro ao sincronizar produtos: ${res.error || 'Verifique o Supabase'}`);
+      }
+    } catch (err: any) {
+      exibirNotificacao('erro', `Falha na sincronização: ${err.message}`);
+    }
+  };
+
   // Exportar Excel
   const handleExportExcel = () => {
     if (items.length === 0) {
@@ -257,16 +426,57 @@ export default function App() {
           onAddBatch={handleAddBatchItems}
           existingIndustries={existingIndustries}
           catalogoProdutosPorIndustria={catalogoSupabase.produtosPorIndustria}
+          catalogoProdutosDetalhadosSupabase={catalogoSupabase.produtosDetalhados}
           catalogoIndustriasSupabase={catalogoSupabase.industrias}
           catalogoCoordenadoresSupabase={catalogoSupabase.coordenadores}
           catalogoLojasSupabase={catalogoSupabase.lojas}
           allItems={items}
           isSaving={isSaving}
+          prefilledProduct={prefilledProduct}
         />
+
+        {/* Alerta de Produtos Encontrados no Supabase quando ainda não há validades lançadas */}
+        {items.length === 0 && (catalogoSupabase.produtosDetalhados?.length || 0) > 0 && (
+          <div className="mb-5 p-4 rounded-xl bg-linear-to-r from-emerald-50 to-blue-50 border border-emerald-200 text-slate-800 shadow-2xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                <Database className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">
+                  {catalogoSupabase.produtosDetalhados?.length} produto(s) carregado(s) da base Supabase!
+                </h3>
+                <p className="text-xs text-slate-600">
+                  Os produtos já estão disponíveis no autocomplete do cadastro acima e listados na aba <strong>"Produtos da Base"</strong>.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setModoVisualizacao('catalogo')}
+              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg shadow-xs transition cursor-pointer shrink-0"
+            >
+              Ver Produtos da Base
+            </button>
+          </div>
+        )}
 
         {/* Barra de Seleção do Modo de Visualização Responsiva */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 mb-4">
           <div className="grid grid-cols-2 sm:flex items-center gap-1 p-1 bg-slate-200/70 rounded-xl w-full sm:w-fit">
+            <button
+              id="btn-modo-cadastro-produtos"
+              type="button"
+              onClick={() => setModoVisualizacao('cadastro_produtos')}
+              className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                modoVisualizacao === 'cadastro_produtos'
+                  ? 'bg-white text-blue-700 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <PackagePlus className="w-4 h-4 text-blue-600 shrink-0" />
+              <span className="truncate">Cadastrar Produtos</span>
+            </button>
             <button
               id="btn-modo-hierarquia"
               type="button"
@@ -293,33 +503,93 @@ export default function App() {
               <Table className="w-4 h-4 text-slate-600 shrink-0" />
               <span className="truncate">Tabela Geral</span>
             </button>
+            <button
+              id="btn-modo-catalogo"
+              type="button"
+              onClick={() => setModoVisualizacao('catalogo')}
+              className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                modoVisualizacao === 'catalogo'
+                  ? 'bg-white text-emerald-800 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Database className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span className="truncate">Produtos da Base</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                modoVisualizacao === 'catalogo' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-300 text-slate-700'
+              }`}>
+                {catalogoSupabase.produtosDetalhados?.length || 0}
+              </span>
+            </button>
           </div>
 
           <div className="text-[11px] sm:text-xs text-slate-500 text-center sm:text-right">
-            {modoVisualizacao === 'hierarquia' ? (
+            {modoVisualizacao === 'cadastro_produtos' ? (
+              <span>Cadastrar <strong>Código, Indústria e Produto</strong> com exportação e sincronização com Supabase</span>
+            ) : modoVisualizacao === 'hierarquia' ? (
               <span>Árvore organizada: <strong>Loja → Indústria → Produtos</strong></span>
-            ) : (
+            ) : modoVisualizacao === 'tabela' ? (
               <span>Planilha geral para filtragem e extração em Excel</span>
+            ) : (
+              <span>Catálogo mestre de produtos sincronizados do banco Supabase</span>
             )}
           </div>
         </div>
 
-        {/* Exibição Condicional: Hierarquia ou Tabela Geral */}
-        {modoVisualizacao === 'hierarquia' ? (
+        {/* Exibição Condicional: Cadastrar Produtos, Hierarquia, Tabela Geral ou Produtos da Base */}
+        {modoVisualizacao === 'cadastro_produtos' ? (
+          <ProductRegistrationView
+            produtosCatalogo={catalogoSupabase.produtosDetalhados || []}
+            existingIndustries={catalogoSupabase.industrias}
+            supabaseConfig={supabaseConfig}
+            onAddProduto={handleAddProdutoCatalogo}
+            onAddBatchProdutos={handleBatchAddProdutosCatalogo}
+            onDeleteProduto={handleDeleteProdutoCatalogo}
+            onSyncPending={handleSyncPendingProdutos}
+            onSelectProductToLaunch={(prod, ind, cod, un) => {
+              setPrefilledProduct({ produto: prod, industria: ind, codigo: cod != null ? String(cod) : undefined, unidade: un });
+              setModoVisualizacao('hierarquia');
+              exibirNotificacao('sucesso', `"${prod}" carregado no formulário! Preencha a loja e validade.`);
+            }}
+            onRefresh={() => carregarDados(supabaseConfig, true)}
+            isRefreshing={isRefreshing}
+            onOpenSupabaseModal={() => setIsSupabaseModalOpen(true)}
+          />
+        ) : modoVisualizacao === 'hierarquia' ? (
           <HierarchyView
             items={items}
+            catalogoLojas={catalogoSupabase.lojas}
+            catalogoCoordenadores={catalogoSupabase.coordenadores}
             onUpdate={handleUpdateItem}
             onDelete={handleDeleteItem}
             isLoading={isLoading}
           />
-        ) : (
+        ) : modoVisualizacao === 'tabela' ? (
           <ProductList
             items={items}
+            catalogoLojas={catalogoSupabase.lojas}
+            catalogoCoordenadores={catalogoSupabase.coordenadores}
+            catalogoProdutos={catalogoSupabase.produtosDetalhados}
             filtroStatus={filtroStatus}
             aoMudarFiltroStatus={setFiltroStatus}
             onUpdate={handleUpdateItem}
             onDelete={handleDeleteItem}
             isLoading={isLoading}
+          />
+        ) : (
+          <BaseProductsView
+            produtosCatalogo={catalogoSupabase.produtosDetalhados || []}
+            itemsValidade={items}
+            supabaseConfig={supabaseConfig}
+            onRefresh={() => carregarDados(supabaseConfig, true)}
+            isRefreshing={isRefreshing}
+            onSelectProductToLaunch={(prod, ind, cod, un) => {
+              setPrefilledProduct({ produto: prod, industria: ind, codigo: cod != null ? String(cod) : undefined, unidade: un });
+              setModoVisualizacao('hierarquia');
+              exibirNotificacao('sucesso', `"${prod}" carregado no formulário! Preencha a loja e validade.`);
+            }}
+            onOpenSupabaseModal={() => setIsSupabaseModalOpen(true)}
+            onNavigateToCadastro={() => setModoVisualizacao('cadastro_produtos')}
           />
         )}
       </main>

@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { ItemValidade } from '../types';
+import { ItemValidade, ProdutoCatalogo } from '../types';
 
 export function calcularDiasRestantes(dataVencimentoStr: string): number {
   if (!dataVencimentoStr) return 0;
@@ -139,13 +139,14 @@ export async function importarDeExcel(file: File): Promise<Array<Omit<ItemValida
       return '';
     };
 
+    const codigo = String(getVal('Código', 'Codigo', 'Cód', 'Cod', 'SKU', 'EAN', 'Código de Barras', 'Codigo de Barras') || '').trim();
     const industria = String(getVal('Indústria / Marca', 'Industria', 'Fabricante', 'Marca', 'Empresa')).trim();
     const produto = String(getVal('Produto', 'Nome', 'Descricao', 'Descrição', 'Item', 'Mercadoria')).trim();
     const rawData = getVal('Data de Vencimento', 'Data Vencimento', 'Vencimento', 'Validade', 'Data', 'dt_vencimento');
     const dataVencimento = parseDataBrOuIso(rawData);
 
     // Produto e indústria e data de vencimento são os campos essenciais
-    if (!produto && !industria) {
+    if (!produto && !industria && !codigo) {
       continue; // Ignora linhas em branco
     }
 
@@ -159,6 +160,7 @@ export async function importarDeExcel(file: File): Promise<Array<Omit<ItemValida
     const observacoes = String(getVal('Observações', 'Observacao', 'Obs', 'Detalhes')).trim();
 
     itemsImportados.push({
+      codigo: codigo || undefined,
       industria: industria || 'Geral',
       produto: produto || 'Produto Sem Nome',
       quantidade,
@@ -178,6 +180,7 @@ export async function importarDeExcel(file: File): Promise<Array<Omit<ItemValida
 export function baixarModeloExcelImportacao() {
   const modelo = [
     {
+      'Código': '7891000100103',
       'Loja': 'Supermercado Central Loja 01',
       'Estado (UF)': 'SP',
       'Coordenador': 'Carlos Silva',
@@ -190,6 +193,7 @@ export function baixarModeloExcelImportacao() {
       'Observações': 'Exposto na ponta de gôndola',
     },
     {
+      'Código': '7891991010834',
       'Loja': 'Hipermercado Esperança',
       'Estado (UF)': 'RJ',
       'Coordenador': 'Mariana Santos',
@@ -202,6 +206,7 @@ export function baixarModeloExcelImportacao() {
       'Observações': 'Campanha de Verão',
     },
     {
+      'Código': '7891079012345',
       'Loja': 'Rede União Sul',
       'Estado (UF)': 'PR',
       'Coordenador': 'Roberto Souza',
@@ -217,6 +222,7 @@ export function baixarModeloExcelImportacao() {
 
   const worksheet = XLSX.utils.json_to_sheet(modelo);
   worksheet['!cols'] = [
+    { wch: 18 }, // Código
     { wch: 28 }, // Loja
     { wch: 12 }, // Estado
     { wch: 20 }, // Coordenador
@@ -246,6 +252,7 @@ export function exportarParaExcel(items: ItemValidade[], nomeArquivo = 'Controle
     else if (dias <= 30) statusTexto = `ATENÇÃO (${dias} dias)`;
 
     return {
+      'Código': item.codigo || '-',
       'Loja': item.loja || '-',
       'Estado (UF)': item.estado || '-',
       'Coordenador': item.coordenador || '-',
@@ -266,6 +273,7 @@ export function exportarParaExcel(items: ItemValidade[], nomeArquivo = 'Controle
 
   // Definir largura de colunas otimizadas para Excel
   worksheet['!cols'] = [
+    { wch: 16 }, // Código
     { wch: 24 }, // Loja
     { wch: 12 }, // Estado
     { wch: 20 }, // Coordenador
@@ -288,4 +296,139 @@ export function exportarParaExcel(items: ItemValidade[], nomeArquivo = 'Controle
   const filename = `${nomeArquivo}_${hojeStr}.xlsx`;
 
   XLSX.writeFile(workbook, filename);
+}
+
+// Exportar catálogo de produtos cadastrados para Excel
+export function exportarProdutosCatalogoParaExcel(produtos: ProdutoCatalogo[], nomeArquivo = 'Catalogo_Produtos_Cadastrados') {
+  const dadosFormatados = produtos.map((p) => ({
+    'Código': p.codigo || '',
+    'Indústria': p.industria,
+    'Produto': p.nome,
+    'Unidade Padrão': p.unidade_padrao || 'un',
+    'Status Supabase': p.syncedToSupabase === false ? 'Pendente de Sincronização' : 'Sincronizado',
+    'Data de Cadastro': p.created_at ? formatarDataBR(p.created_at) : '',
+  }));
+
+  const worksheet = XLSX.utils.json_to_sheet(dadosFormatados);
+
+  worksheet['!cols'] = [
+    { wch: 18 }, // Código
+    { wch: 25 }, // Indústria
+    { wch: 38 }, // Produto
+    { wch: 16 }, // Unidade Padrão
+    { wch: 25 }, // Status Supabase
+    { wch: 18 }, // Data de Cadastro
+  ];
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Produtos');
+
+  const hojeStr = new Date().toISOString().split('T')[0];
+  const filename = `${nomeArquivo}_${hojeStr}.xlsx`;
+
+  XLSX.writeFile(workbook, filename);
+}
+
+// Baixar modelo de planilha para importação em lote de produtos
+export function baixarModeloCadastroProdutosExcel() {
+  const modelo = [
+    {
+      'Código': '7891000100103',
+      'Indústria': 'Nestlé',
+      'Produto': 'Leite Condensado Moça 395g',
+      'Unidade': 'un',
+    },
+    {
+      'Código': '7891991010834',
+      'Indústria': 'Ambev',
+      'Produto': 'Cerveja Spaten Lata 350ml',
+      'Unidade': 'un',
+    },
+    {
+      'Código': '7891079012345',
+      'Indústria': 'Bauducco',
+      'Produto': 'Biscoito Recheado Chocooky 120g',
+      'Unidade': 'pct',
+    },
+    {
+      'Código': '7898024394182',
+      'Indústria': 'Unilever',
+      'Produto': 'Sabão em Pó Omo Lavagem Perfeita 1.6kg',
+      'Unidade': 'cx',
+    },
+  ];
+
+  const worksheet = XLSX.utils.json_to_sheet(modelo);
+  worksheet['!cols'] = [
+    { wch: 20 }, // Código
+    { wch: 25 }, // Indústria
+    { wch: 40 }, // Produto
+    { wch: 12 }, // Unidade
+  ];
+
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Modelo_Produtos');
+  XLSX.writeFile(workbook, 'Modelo_Cadastro_Produtos.xlsx');
+}
+
+// Importar produtos de arquivo Excel (.xlsx, .xls, .csv)
+export async function importarProdutosDeExcel(file: File): Promise<Array<{
+  codigo?: string;
+  industria: string;
+  produto: string;
+  unidade?: string;
+}>> {
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, { type: 'array', cellDates: false });
+  const firstSheetName = workbook.SheetNames[0];
+  if (!firstSheetName) {
+    throw new Error('O arquivo de planilha está vazio.');
+  }
+
+  const worksheet = workbook.Sheets[firstSheetName];
+  const rows: any[] = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+
+  if (!rows || rows.length === 0) {
+    throw new Error('Nenhuma linha de produto encontrada na planilha.');
+  }
+
+  const produtos: Array<{
+    codigo?: string;
+    industria: string;
+    produto: string;
+    unidade?: string;
+  }> = [];
+
+  for (const row of rows) {
+    const getVal = (...keys: string[]): any => {
+      for (const k of keys) {
+        if (row[k] !== undefined && row[k] !== '') return row[k];
+        const lowerK = k.toLowerCase();
+        for (const rowKey of Object.keys(row)) {
+          if (rowKey.toLowerCase() === lowerK && row[rowKey] !== undefined && row[rowKey] !== '') {
+            return row[rowKey];
+          }
+        }
+      }
+      return '';
+    };
+
+    const codigo = String(getVal('Código', 'Codigo', 'Cód', 'Cod', 'SKU', 'EAN', 'Código de Barras', 'Codigo de Barras') || '').trim();
+    const industria = String(getVal('Indústria', 'Industria', 'Fabricante', 'Marca', 'Empresa', 'Indústria / Marca') || '').trim();
+    const produto = String(getVal('Produto', 'Nome', 'Descricao', 'Descrição', 'Item', 'Mercadoria', 'Nome do Produto') || '').trim();
+    const unidade = String(getVal('Unidade', 'Un', 'Medida', 'Unidade Padrão', 'Unidade Padrao') || 'un').trim();
+
+    if (!produto && !industria && !codigo) continue;
+
+    if (produto) {
+      produtos.push({
+        codigo: codigo || undefined,
+        industria: industria || 'Geral',
+        produto,
+        unidade: unidade || 'un',
+      });
+    }
+  }
+
+  return produtos;
 }
