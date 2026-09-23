@@ -14,11 +14,13 @@ import {
   PackagePlus,
 } from 'lucide-react';
 import { ProdutoCatalogo, ItemValidade, SupabaseConfig } from '../types';
+import { IndustryLogoItem } from '../lib/firebase';
 
 interface BaseProductsViewProps {
   produtosCatalogo: ProdutoCatalogo[];
   itemsValidade: ItemValidade[];
   supabaseConfig: SupabaseConfig;
+  industryLogos?: Record<string, { logoUrl?: string; [key: string]: any }>;
   onRefresh: () => void;
   isRefreshing: boolean;
   onSelectProductToLaunch: (produto: string, industria: string, codigo?: string, unidade?: string) => void;
@@ -30,6 +32,7 @@ export const BaseProductsView: React.FC<BaseProductsViewProps> = ({
   produtosCatalogo,
   itemsValidade,
   supabaseConfig,
+  industryLogos = {},
   onRefresh,
   isRefreshing,
   onSelectProductToLaunch,
@@ -249,10 +252,21 @@ export const BaseProductsView: React.FC<BaseProductsViewProps> = ({
 
                     {/* Indústria */}
                     <td className="py-3 px-4">
-                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-slate-100 text-slate-700 text-xs font-medium rounded-md">
-                        <Building2 className="w-3 h-3 text-slate-400" />
-                        {prod.industria || 'Geral'}
-                      </span>
+                      {prod.industria && industryLogos[prod.industria.toLowerCase()]?.logoUrl ? (
+                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-orange-50/80 border border-orange-200/80 text-slate-800 text-xs font-medium rounded-md shadow-2xs">
+                          <img
+                            src={industryLogos[prod.industria.toLowerCase()].logoUrl}
+                            alt={prod.industria}
+                            className="w-4 h-4 object-contain rounded shrink-0"
+                          />
+                          <span>{prod.industria}</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-slate-100 text-slate-700 text-xs font-medium rounded-md">
+                          <Building2 className="w-3 h-3 text-slate-400" />
+                          {prod.industria || 'Geral'}
+                        </span>
+                      )}
                     </td>
 
                     {/* Unidade */}

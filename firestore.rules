@@ -1,0 +1,40 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidSystemConfig(data) {
+      return data.logoUrl is string && data.logoUrl.size() <= 1500000 &&
+             (!('systemName' in data) || (data.systemName is string && data.systemName.size() <= 200)) &&
+             data.updatedAt is string && data.updatedAt.size() <= 64;
+    }
+
+    function isValidIndustryLogo(data) {
+      return data.industryName is string && data.industryName.size() <= 200 &&
+             data.logoUrl is string && data.logoUrl.size() <= 1500000 &&
+             data.updatedAt is string && data.updatedAt.size() <= 64;
+    }
+
+    match /system_config/{configId} {
+      allow get: if isValidId(configId);
+      allow list: if false;
+      allow create, update: if isValidId(configId) && isValidSystemConfig(request.resource.data);
+      allow delete: if isValidId(configId);
+    }
+
+    match /industry_logos/{industryId} {
+      allow get: if isValidId(industryId);
+      allow list: if true;
+      allow create, update: if isValidId(industryId) && isValidIndustryLogo(request.resource.data);
+      allow delete: if isValidId(industryId);
+    }
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

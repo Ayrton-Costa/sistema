@@ -1,0 +1,38 @@
+{
+  "entities": {
+    "systemConfig": {
+      "title": "Configuração do Sistema",
+      "description": "Armazena a identidade visual e logo do sistema",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "logoUrl": { "type": "string", "maxLength": 1500000 },
+        "systemName": { "type": "string", "maxLength": 200 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["logoUrl", "updatedAt"]
+    },
+    "industryLogo": {
+      "title": "Logo da Indústria",
+      "description": "Armazena a imagem do logotipo de cada indústria ou marca",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "industryName": { "type": "string", "maxLength": 200 },
+        "logoUrl": { "type": "string", "maxLength": 1500000 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["industryName", "logoUrl", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/system_config/{configId}": {
+      "schema": "systemConfig",
+      "description": "Documento de identidade visual do sistema"
+    },
+    "/industry_logos/{industryId}": {
+      "schema": "industryLogo",
+      "description": "Coleção de logos de cada indústria"
+    }
+  }
+}

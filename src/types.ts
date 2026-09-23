@@ -39,4 +39,4 @@ export type FiltroStatus = 'todos' | 'vencidos' | 'critico_7d' | 'atencao_30d' |
 // Níveis possíveis para organização da hierarquia
 export type NivelHierarquia = 'loja' | 'industria' | 'coordenador' | 'estado';
 
-export type ModoVisualizacao = 'hierarquia' | 'tabela' | 'catalogo' | 'cadastro_produtos';
+export type ModoVisualizacao = 'hierarquia' | 'tabela' | 'catalogo' | 'cadastro_produtos' | 'logos';

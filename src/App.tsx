@@ -6,9 +6,11 @@ import { ProductList } from './components/ProductList';
 import { HierarchyView } from './components/HierarchyView';
 import { BaseProductsView } from './components/BaseProductsView';
 import { ProductRegistrationView } from './components/ProductRegistrationView';
+import { LogoManagementView } from './components/LogoManagementView';
 import { SupabaseModal } from './components/SupabaseModal';
 import { ImportExcelModal } from './components/ImportExcelModal';
 import { ItemValidade, FiltroStatus, SupabaseConfig, ModoVisualizacao, ProdutoCatalogo } from './types';
+import { driveApi, DriveSystemConfig, DriveIndustryLogo, DriveStoreLogo, DriveCoordinatorLogo } from './lib/driveApi';
 import {
   getStoredSupabaseConfig,
   saveSupabaseConfig,
@@ -25,7 +27,7 @@ import {
   syncAllPendingProdutosToSupabase,
 } from './lib/supabase';
 import { exportarParaExcel } from './lib/excel';
-import { AlertCircle, CheckCircle2, Info, X, Table, Network, Database, Sparkles, PackagePlus } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Info, X, Table, Network, Database, Sparkles, PackagePlus, FolderOpen, CloudCheck } from 'lucide-react';
 
 export default function App() {
   const [items, setItems] = useState<ItemValidade[]>([]);
@@ -50,6 +52,12 @@ export default function App() {
     codigo?: string;
     unidade?: string;
   } | null>(null);
+
+  // Estados de Imagens e Logos do Google Drive
+  const [systemBranding, setSystemBranding] = useState<DriveSystemConfig | null>(null);
+  const [industryLogos, setIndustryLogos] = useState<Record<string, DriveIndustryLogo>>({});
+  const [storeLogos, setStoreLogos] = useState<Record<string, DriveStoreLogo>>({});
+  const [coordinatorLogos, setCoordinatorLogos] = useState<Record<string, DriveCoordinatorLogo>>({});
 
   // Mensagens de notificação rápida
   const [banner, setBanner] = useState<{
@@ -118,6 +126,26 @@ export default function App() {
       }
     }
     carregarDados(supabaseConfig);
+
+    // Carregar identidade visual e logos do Google Drive
+    driveApi.getManifest().then((res) => {
+      if (res.success && res.manifest) {
+        if (res.manifest.systemConfig) {
+          setSystemBranding(res.manifest.systemConfig);
+        }
+        if (res.manifest.industryLogos) {
+          setIndustryLogos(res.manifest.industryLogos);
+        }
+        if (res.manifest.storeLogos) {
+          setStoreLogos(res.manifest.storeLogos);
+        }
+        if (res.manifest.coordinatorLogos) {
+          setCoordinatorLogos(res.manifest.coordinatorLogos);
+        }
+      }
+    }).catch((err) => {
+      console.warn('Erro ao carregar manifesto do Drive:', err);
+    });
   }, [carregarDados, supabaseConfig]);
 
   // Lista de indústrias cadastradas para o autocomplete rápido
@@ -375,10 +403,12 @@ export default function App() {
       {/* Barra de Topo */}
       <Header
         supabaseConfig={supabaseConfig}
+        systemBranding={systemBranding}
         onOpenSupabaseModal={() => setIsSupabaseModalOpen(true)}
         onExportExcel={handleExportExcel}
         onOpenImportExcel={() => setIsImportExcelOpen(true)}
         onRefresh={() => carregarDados(supabaseConfig, true)}
+        onOpenLogos={() => setModoVisualizacao('logos')}
         isRefreshing={isRefreshing}
         totalItems={items.length}
       />
@@ -521,6 +551,24 @@ export default function App() {
                 {catalogoSupabase.produtosDetalhados?.length || 0}
               </span>
             </button>
+            <button
+              id="btn-modo-logos"
+              type="button"
+              onClick={() => setModoVisualizacao('logos')}
+              className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                modoVisualizacao === 'logos'
+                  ? 'bg-white text-emerald-800 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <FolderOpen className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span className="truncate">Logos &amp; Identidade</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                modoVisualizacao === 'logos' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-300 text-slate-700'
+              }`}>
+                Drive
+              </span>
+            </button>
           </div>
 
           <div className="text-[11px] sm:text-xs text-slate-500 text-center sm:text-right">
@@ -530,13 +578,15 @@ export default function App() {
               <span>Árvore organizada: <strong>Loja → Indústria → Produtos</strong></span>
             ) : modoVisualizacao === 'tabela' ? (
               <span>Planilha geral para filtragem e extração em Excel</span>
-            ) : (
+            ) : modoVisualizacao === 'catalogo' ? (
               <span>Catálogo mestre de produtos sincronizados do banco Supabase</span>
+            ) : (
+              <span>Anexar e gerenciar logotipo do sistema e marcas das indústrias no <strong>Google Drive</strong></span>
             )}
           </div>
         </div>
 
-        {/* Exibição Condicional: Cadastrar Produtos, Hierarquia, Tabela Geral ou Produtos da Base */}
+        {/* Exibição Condicional: Cadastrar Produtos, Hierarquia, Tabela Geral, Produtos da Base ou Logos Firebase */}
         {modoVisualizacao === 'cadastro_produtos' ? (
           <ProductRegistrationView
             produtosCatalogo={catalogoSupabase.produtosDetalhados || []}
@@ -560,6 +610,9 @@ export default function App() {
             items={items}
             catalogoLojas={catalogoSupabase.lojas}
             catalogoCoordenadores={catalogoSupabase.coordenadores}
+            industryLogos={industryLogos}
+            storeLogos={storeLogos}
+            coordinatorLogos={coordinatorLogos}
             onUpdate={handleUpdateItem}
             onDelete={handleDeleteItem}
             isLoading={isLoading}
@@ -576,11 +629,12 @@ export default function App() {
             onDelete={handleDeleteItem}
             isLoading={isLoading}
           />
-        ) : (
+        ) : modoVisualizacao === 'catalogo' ? (
           <BaseProductsView
             produtosCatalogo={catalogoSupabase.produtosDetalhados || []}
             itemsValidade={items}
             supabaseConfig={supabaseConfig}
+            industryLogos={industryLogos}
             onRefresh={() => carregarDados(supabaseConfig, true)}
             isRefreshing={isRefreshing}
             onSelectProductToLaunch={(prod, ind, cod, un) => {
@@ -590,6 +644,17 @@ export default function App() {
             }}
             onOpenSupabaseModal={() => setIsSupabaseModalOpen(true)}
             onNavigateToCadastro={() => setModoVisualizacao('cadastro_produtos')}
+          />
+        ) : (
+          <LogoManagementView
+            itens={items}
+            produtosCatalogo={catalogoSupabase.produtosDetalhados || []}
+            catalogoLojas={catalogoSupabase.lojas}
+            catalogoCoordenadores={catalogoSupabase.coordenadores}
+            onSystemLogoUpdated={(branding) => setSystemBranding(branding)}
+            onIndustryLogosUpdated={(logos) => setIndustryLogos(logos)}
+            onStoreLogosUpdated={(logos) => setStoreLogos(logos)}
+            onCoordinatorLogosUpdated={(logos) => setCoordinatorLogos(logos)}
           />
         )}
       </main>

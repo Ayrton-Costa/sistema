@@ -28,6 +28,7 @@ import {
   Filter,
 } from 'lucide-react';
 import { ItemValidade, NivelHierarquia } from '../types';
+import { IndustryLogoItem } from '../lib/firebase';
 import {
   calcularDiasRestantes,
   obterStatusValidade,
@@ -39,6 +40,9 @@ interface HierarchyViewProps {
   items: ItemValidade[];
   catalogoLojas?: Array<{ nome: string; estado?: string; coordenador?: string }>;
   catalogoCoordenadores?: string[];
+  industryLogos?: Record<string, { logoUrl?: string; [key: string]: any }>;
+  storeLogos?: Record<string, { logoUrl?: string; [key: string]: any }>;
+  coordinatorLogos?: Record<string, { logoUrl?: string; [key: string]: any }>;
   onUpdate: (item: ItemValidade) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   isLoading: boolean;
@@ -68,6 +72,9 @@ export const HierarchyView: React.FC<HierarchyViewProps> = ({
   items,
   catalogoLojas = [],
   catalogoCoordenadores = [],
+  industryLogos = {},
+  storeLogos = {},
+  coordinatorLogos = {},
   onUpdate,
   onDelete,
   isLoading,
@@ -367,11 +374,37 @@ export const HierarchyView: React.FC<HierarchyViewProps> = ({
               )}
             </button>
 
-            <div
-              className={`p-1.5 rounded-lg shrink-0 border ${configNivel.bg} ${configNivel.cor}`}
-            >
-              <Icone className="w-4 h-4" />
-            </div>
+            {node.nivel === 'industria' && (industryLogos[node.valor.toLowerCase()]?.logoUrl || industryLogos[node.valor.toLowerCase().replace(/[^a-z0-9]/g, '_')]?.logoUrl) ? (
+              <div className="w-8 h-8 rounded-lg bg-white p-0.5 border border-purple-200 shadow-2xs flex items-center justify-center overflow-hidden shrink-0">
+                <img
+                  src={industryLogos[node.valor.toLowerCase()]?.logoUrl || industryLogos[node.valor.toLowerCase().replace(/[^a-z0-9]/g, '_')]?.logoUrl}
+                  alt={node.valor}
+                  className="max-h-full max-w-full object-contain"
+                />
+              </div>
+            ) : node.nivel === 'loja' && (storeLogos[node.valor.toLowerCase()]?.logoUrl || storeLogos[node.valor.toLowerCase().replace(/[^a-z0-9]/g, '_')]?.logoUrl) ? (
+              <div className="w-8 h-8 rounded-lg bg-white p-0.5 border border-blue-200 shadow-2xs flex items-center justify-center overflow-hidden shrink-0">
+                <img
+                  src={storeLogos[node.valor.toLowerCase()]?.logoUrl || storeLogos[node.valor.toLowerCase().replace(/[^a-z0-9]/g, '_')]?.logoUrl}
+                  alt={node.valor}
+                  className="max-h-full max-w-full object-contain"
+                />
+              </div>
+            ) : node.nivel === 'coordenador' && (coordinatorLogos[node.valor.toLowerCase()]?.logoUrl || coordinatorLogos[node.valor.toLowerCase().replace(/[^a-z0-9]/g, '_')]?.logoUrl) ? (
+              <div className="w-8 h-8 rounded-full bg-white p-0.5 border border-indigo-200 shadow-2xs flex items-center justify-center overflow-hidden shrink-0">
+                <img
+                  src={coordinatorLogos[node.valor.toLowerCase()]?.logoUrl || coordinatorLogos[node.valor.toLowerCase().replace(/[^a-z0-9]/g, '_')]?.logoUrl}
+                  alt={node.valor}
+                  className="w-full h-full object-cover rounded-full"
+                />
+              </div>
+            ) : (
+              <div
+                className={`p-1.5 rounded-lg shrink-0 border ${configNivel.bg} ${configNivel.cor}`}
+              >
+                <Icone className="w-4 h-4" />
+              </div>
+            )}
 
             <div className="min-w-0">
               <div className="flex items-center gap-2">
