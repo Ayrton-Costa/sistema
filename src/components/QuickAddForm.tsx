@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronUp,
   Check,
+  X,
   Zap,
   Store,
   MapPin,
@@ -105,7 +106,7 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
     }
   }, [prefilledProduct]);
 
-  // Lista única de coordenadores do Supabase (tanto da tabela de coordenadores quanto da tabela validades)
+  // Lista única de coordenadores (Supabase + histórico de itens)
   const coordenadoresCadastrados = useMemo(() => {
     const set = new Set<string>();
     catalogoCoordenadoresSupabase.forEach((c) => {
@@ -117,41 +118,81 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
     allItems.forEach((it) => {
       if (it.coordenador?.trim()) set.add(it.coordenador.trim());
     });
-    return Array.from(set).sort();
+
+    // Se a base ainda estiver zerada, disponibiliza coordenadores padrão
+    if (set.size === 0) {
+      ['Carlos Silva', 'Mariana Santos', 'Roberto Souza', 'Fernanda Lima'].forEach((ex) => set.add(ex));
+    }
+
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'pt-BR'));
   }, [allItems, catalogoCoordenadoresSupabase, catalogoLojasSupabase]);
 
-  // Lista de lojas sugeridas: se um coordenador já foi selecionado/digitado, prioriza/mostra as lojas dele
+  // Lista de lojas cadastradas: filtradas dinamicamente pelo coordenador e estado selecionados
   const lojasCadastradas = useMemo(() => {
     const coordTrim = coordenador.trim().toLowerCase();
-    const setLojasDoCoord = new Set<string>();
-    const setOutrasLojas = new Set<string>();
+    const estTrim = estado.trim().toUpperCase();
+
+    const mapLojas = new Map<string, { nome: string; estado?: string; coordenador?: string }>();
 
     catalogoLojasSupabase.forEach((l) => {
-      if (!l.nome?.trim()) return;
-      if (coordTrim && l.coordenador?.trim().toLowerCase() === coordTrim) {
-        setLojasDoCoord.add(l.nome.trim());
-      } else {
-        setOutrasLojas.add(l.nome.trim());
+      if (l.nome?.trim()) {
+        mapLojas.set(l.nome.trim(), {
+          nome: l.nome.trim(),
+          estado: l.estado?.trim(),
+          coordenador: l.coordenador?.trim(),
+        });
       }
     });
 
     allItems.forEach((it) => {
-      if (!it.loja?.trim()) return;
-      if (coordTrim && it.coordenador?.trim().toLowerCase() === coordTrim) {
-        setLojasDoCoord.add(it.loja.trim());
-      } else {
-        setOutrasLojas.add(it.loja.trim());
+      if (it.loja?.trim()) {
+        const nome = it.loja.trim();
+        const existing = mapLojas.get(nome);
+        mapLojas.set(nome, {
+          nome,
+          estado: it.estado?.trim() || existing?.estado,
+          coordenador: it.coordenador?.trim() || existing?.coordenador,
+        });
       }
     });
 
-    if (coordTrim && setLojasDoCoord.size > 0) {
-      return [...Array.from(setLojasDoCoord).sort(), ...Array.from(setOutrasLojas).sort()];
+    if (mapLojas.size === 0) {
+      [
+        { nome: 'Loja Matriz', estado: 'SP', coordenador: 'Carlos Silva' },
+        { nome: 'Loja Centro', estado: 'RJ', coordenador: 'Mariana Santos' },
+        { nome: 'Loja Zona Sul', estado: 'MG', coordenador: 'Roberto Souza' },
+        { nome: 'Hipermercado 01', estado: 'SP', coordenador: 'Carlos Silva' },
+        { nome: 'Supermercado Modelo', estado: 'BA', coordenador: 'Fernanda Lima' },
+      ].forEach((ex) => mapLojas.set(ex.nome, ex));
     }
 
-    return Array.from(new Set([...Array.from(setLojasDoCoord), ...Array.from(setOutrasLojas)])).sort();
-  }, [allItems, catalogoLojasSupabase, coordenador]);
+    const todas = Array.from(mapLojas.values());
 
-  // Ao selecionar ou digitar uma loja cadastrada, preenche automaticamente Estado e Coordenador
+    // Se houver coordenador selecionado, prioriza ou filtra as lojas dele
+    let resultado = todas;
+    if (coordTrim) {
+      const lojasDoCoord = todas.filter(
+        (l) => l.coordenador?.trim().toLowerCase() === coordTrim
+      );
+      if (lojasDoCoord.length > 0) {
+        resultado = lojasDoCoord;
+      }
+    }
+
+    // Se houver estado selecionado, filtra por ele
+    if (estTrim) {
+      const lojasDoEstado = resultado.filter(
+        (l) => (l.estado || '').trim().toUpperCase() === estTrim
+      );
+      if (lojasDoEstado.length > 0) {
+        resultado = lojasDoEstado;
+      }
+    }
+
+    return resultado.map((l) => l.nome).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  }, [allItems, catalogoLojasSupabase, coordenador, estado]);
+
+  // Ao selecionar uma loja, preenche automaticamente Estado e Coordenador correspondentes
   const handleMudarLoja = (nomeLoja: string) => {
     setLoja(nomeLoja);
     const trimmed = nomeLoja.trim().toLowerCase();
@@ -162,48 +203,109 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
       (l) => l.nome.trim().toLowerCase() === trimmed
     );
     if (lojaEncontrada) {
-      if (lojaEncontrada.estado && !estado) setEstado(lojaEncontrada.estado);
-      if (lojaEncontrada.coordenador && !coordenador) setCoordenador(lojaEncontrada.coordenador);
+      if (lojaEncontrada.estado) setEstado(lojaEncontrada.estado);
+      if (lojaEncontrada.coordenador) setCoordenador(lojaEncontrada.coordenador);
       return;
     }
 
-    // Caso contrário, procura na tabela validades
+    // Procura na tabela validades
     const itemExistente = allItems.find(
       (it) => it.loja && it.loja.trim().toLowerCase() === trimmed
     );
     if (itemExistente) {
-      if (itemExistente.estado && !estado) setEstado(itemExistente.estado);
-      if (itemExistente.coordenador && !coordenador) setCoordenador(itemExistente.coordenador);
+      if (itemExistente.estado) setEstado(itemExistente.estado);
+      if (itemExistente.coordenador) setCoordenador(itemExistente.coordenador);
+      return;
+    }
+
+    // Fallback padrão
+    const fallbackStore = [
+      { nome: 'Loja Matriz', estado: 'SP', coordenador: 'Carlos Silva' },
+      { nome: 'Loja Centro', estado: 'RJ', coordenador: 'Mariana Santos' },
+      { nome: 'Loja Zona Sul', estado: 'MG', coordenador: 'Roberto Souza' },
+      { nome: 'Hipermercado 01', estado: 'SP', coordenador: 'Carlos Silva' },
+      { nome: 'Supermercado Modelo', estado: 'BA', coordenador: 'Fernanda Lima' },
+    ].find((ex) => ex.nome.toLowerCase() === trimmed);
+    if (fallbackStore) {
+      if (fallbackStore.estado) setEstado(fallbackStore.estado);
+      if (fallbackStore.coordenador) setCoordenador(fallbackStore.coordenador);
     }
   };
 
-  // Ao selecionar um coordenador, se a loja atual não pertencer a ele, sugere as lojas vinculadas a ele
+  // Ao selecionar um coordenador, se a loja atual não pertencer a ele, reseta a loja
   const handleMudarCoordenador = (nomeCoord: string) => {
     setCoordenador(nomeCoord);
     const coordTrim = nomeCoord.trim().toLowerCase();
     if (!coordTrim) return;
 
-    // Se ainda não preencheu loja, ou a loja atual não é desse coordenador, pré-sugere a loja
-    if (!loja.trim()) {
-      const lojaDoCoord =
-        catalogoLojasSupabase.find((l) => l.coordenador?.trim().toLowerCase() === coordTrim) ||
-        allItems.find((it) => it.coordenador?.trim().toLowerCase() === coordTrim && it.loja);
-      if (lojaDoCoord) {
-        const nomeLoja = 'nome' in lojaDoCoord ? lojaDoCoord.nome : (lojaDoCoord as any).loja;
-        const estadoLoja = (lojaDoCoord as any).estado;
-        if (nomeLoja) {
-          setLoja(nomeLoja);
-          if (estadoLoja && !estado) setEstado(estadoLoja);
-        }
+    if (loja) {
+      const lojaPertence =
+        catalogoLojasSupabase.some(
+          (l) =>
+            l.nome.trim().toLowerCase() === loja.trim().toLowerCase() &&
+            l.coordenador?.trim().toLowerCase() === coordTrim
+        ) ||
+        allItems.some(
+          (it) =>
+            it.loja?.trim().toLowerCase() === loja.trim().toLowerCase() &&
+            it.coordenador?.trim().toLowerCase() === coordTrim
+        ) ||
+        [
+          { nome: 'Loja Matriz', coordenador: 'Carlos Silva' },
+          { nome: 'Loja Centro', coordenador: 'Mariana Santos' },
+          { nome: 'Loja Zona Sul', coordenador: 'Roberto Souza' },
+          { nome: 'Hipermercado 01', coordenador: 'Carlos Silva' },
+          { nome: 'Supermercado Modelo', coordenador: 'Fernanda Lima' },
+        ].some(
+          (ex) =>
+            ex.nome.toLowerCase() === loja.trim().toLowerCase() &&
+            ex.coordenador.toLowerCase() === coordTrim
+        );
+
+      if (!lojaPertence) {
+        setLoja('');
       }
     }
   };
 
-  // Busca automática quando o usuário digita o código do produto
+  // Ao mudar o estado, se a loja atual não pertencer a ele, reseta a loja
+  const handleMudarEstado = (novoEstado: string) => {
+    setEstado(novoEstado);
+    const estTrim = novoEstado.trim().toUpperCase();
+    if (!estTrim) return;
+
+    if (loja) {
+      const lojaNoEstado =
+        catalogoLojasSupabase.some(
+          (l) =>
+            l.nome.trim().toLowerCase() === loja.trim().toLowerCase() &&
+            (l.estado || '').trim().toUpperCase() === estTrim
+        ) ||
+        allItems.some(
+          (it) =>
+            it.loja?.trim().toLowerCase() === loja.trim().toLowerCase() &&
+            (it.estado || '').trim().toUpperCase() === estTrim
+        );
+
+      if (!lojaNoEstado) {
+        setLoja('');
+      }
+    }
+  };
+
+  // Busca automática DINÂMICA quando o usuário digita ou apaga o código do produto
   const handleCodigoChange = (novoCodigo: string) => {
     setCodigo(novoCodigo);
     const codLimpo = novoCodigo.trim().toLowerCase();
-    if (!codLimpo) return;
+
+    // Se o usuário apagar ou excluir o código, limpa imediatamente a descrição e a indústria
+    if (!codLimpo) {
+      setProduto('');
+      setIndustria('');
+      return;
+    }
+
+    let match: { nome: string; industria: string; unidade?: string } | null = null;
 
     // 1. Procura primeiro no catálogo relacional detalhado do Supabase
     if (catalogoProdutosDetalhadosSupabase && catalogoProdutosDetalhadosSupabase.length > 0) {
@@ -213,31 +315,42 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
       });
 
       if (matchCatalogo) {
-        setProduto(matchCatalogo.nome);
-        if (matchCatalogo.industria && !industria) {
-          setIndustria(matchCatalogo.industria);
-        }
-        if (matchCatalogo.unidade_padrao) {
-          setUnidade(matchCatalogo.unidade_padrao);
-        }
-        return;
+        match = {
+          nome: matchCatalogo.nome,
+          industria: matchCatalogo.industria,
+          unidade: matchCatalogo.unidade_padrao,
+        };
       }
     }
 
     // 2. Procura nos itens já salvos no Supabase (tabela validades)
-    const matchValidade = allItems.find((it) => {
-      const codIt = (it.codigo != null ? String(it.codigo) : '').trim().toLowerCase();
-      return codIt && codIt === codLimpo;
-    });
+    if (!match && allItems && allItems.length > 0) {
+      const matchValidade = allItems.find((it) => {
+        const codIt = (it.codigo != null ? String(it.codigo) : '').trim().toLowerCase();
+        return codIt && codIt === codLimpo;
+      });
 
-    if (matchValidade) {
-      setProduto(matchValidade.produto);
-      if (matchValidade.industria && !industria) {
-        setIndustria(matchValidade.industria);
+      if (matchValidade) {
+        match = {
+          nome: matchValidade.produto,
+          industria: matchValidade.industria,
+          unidade: matchValidade.unidade,
+        };
       }
-      if (matchValidade.unidade) {
-        setUnidade(matchValidade.unidade);
+    }
+
+    if (match) {
+      // Dinâmico: preenche SEMPRE a indústria correspondente e a descrição do produto!
+      // Evita erros de digitar código de uma indústria e aparecer outra
+      setProduto(match.nome);
+      setIndustria(match.industria);
+      if (match.unidade) {
+        setUnidade(match.unidade);
       }
+    } else {
+      // Código alterado ou não encontrado: limpa descrição e indústria para não deixar resíduo
+      setProduto('');
+      setIndustria('');
     }
   };
 
@@ -539,27 +652,29 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 p-3 bg-slate-50/80 border border-slate-200/80 rounded-xl">
           <div className="sm:col-span-5">
             <label
-              htmlFor="input-loja"
-              className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1"
+              htmlFor="select-loja"
+              className="block text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between"
             >
-              <Store className="w-3.5 h-3.5 text-blue-600" />
-              <span>Nome da Loja</span>
+              <div className="flex items-center gap-1">
+                <Store className="w-3.5 h-3.5 text-blue-600" />
+                <span>Nome da Loja</span>
+              </div>
+              <span className="text-[10px] font-normal text-slate-500">Selecione da lista</span>
             </label>
             <div className="relative">
-              <input
-                id="input-loja"
-                type="text"
-                list="lista-lojas-cadastradas"
+              <select
+                id="select-loja"
                 value={loja}
                 onChange={(e) => handleMudarLoja(e.target.value)}
-                placeholder="Ex: Hiper Centro, Loja 04..."
-                className="w-full h-11 sm:h-10 px-3 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-800"
-              />
-              <datalist id="lista-lojas-cadastradas">
+                className="w-full h-11 sm:h-10 px-3 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-800 cursor-pointer"
+              >
+                <option value="">Selecione a Loja ({lojasCadastradas.length})...</option>
                 {lojasCadastradas.map((l) => (
-                  <option key={l} value={l} />
+                  <option key={l} value={l}>
+                    {l}
+                  </option>
                 ))}
-              </datalist>
+              </select>
             </div>
           </div>
 
@@ -574,8 +689,8 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
             <select
               id="select-estado"
               value={estado}
-              onChange={(e) => setEstado(e.target.value)}
-              className="w-full h-11 sm:h-10 px-3 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-800"
+              onChange={(e) => handleMudarEstado(e.target.value)}
+              className="w-full h-11 sm:h-10 px-3 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-800 cursor-pointer"
             >
               <option value="">Selecione...</option>
               {ESTADOS_BRASIL.map((uf) => (
@@ -588,27 +703,29 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
 
           <div className="sm:col-span-4">
             <label
-              htmlFor="input-coordenador"
-              className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1"
+              htmlFor="select-coordenador"
+              className="block text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between"
             >
-              <UserCheck className="w-3.5 h-3.5 text-slate-500" />
-              <span>Coordenador / Responsável</span>
+              <div className="flex items-center gap-1">
+                <UserCheck className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Coordenador / Responsável</span>
+              </div>
+              <span className="text-[10px] font-normal text-slate-500">Selecione da lista</span>
             </label>
             <div className="relative">
-              <input
-                id="input-coordenador"
-                type="text"
-                list="lista-coordenadores-cadastrados"
+              <select
+                id="select-coordenador"
                 value={coordenador}
                 onChange={(e) => handleMudarCoordenador(e.target.value)}
-                placeholder="Ex: Carlos Silva, Mariana..."
-                className="w-full h-11 sm:h-10 px-3 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-800"
-              />
-              <datalist id="lista-coordenadores-cadastrados">
+                className="w-full h-11 sm:h-10 px-3 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-800 cursor-pointer"
+              >
+                <option value="">Selecione o Coordenador ({coordenadoresCadastrados.length})...</option>
                 {coordenadoresCadastrados.map((c) => (
-                  <option key={c} value={c} />
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
                 ))}
-              </datalist>
+              </select>
             </div>
           </div>
         </div>
@@ -639,8 +756,18 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
                 value={codigo}
                 onChange={(e) => handleCodigoChange(e.target.value)}
                 placeholder="Ex: 7891000..."
-                className="w-full h-11 sm:h-10 px-3 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-mono font-medium text-slate-800"
+                className="w-full h-11 sm:h-10 pl-3 pr-8 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-mono font-medium text-slate-800"
               />
+              {codigo && (
+                <button
+                  type="button"
+                  onClick={() => handleCodigoChange('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded cursor-pointer"
+                  title="Limpar código (apaga descrição e indústria)"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
               <datalist id="lista-codigos-supabase">
                 {sugestoesCodigos.map((item) => (
                   <option key={item.codigo} value={item.codigo}>
@@ -649,6 +776,12 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
                 ))}
               </datalist>
             </div>
+            {codigo && produto && industria && (
+              <div className="mt-1 flex items-center gap-1 text-[10px] text-emerald-700 font-medium truncate">
+                <Check className="w-3 h-3 text-emerald-600 shrink-0" />
+                <span className="truncate">Vinculado à {industria}</span>
+              </div>
+            )}
           </div>
 
           {/* Indústria / Fabricante */}

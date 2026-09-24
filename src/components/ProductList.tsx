@@ -758,15 +758,29 @@ export const ProductList: React.FC<ProductListProps> = ({
                       {/* Loja & Estado */}
                       <td className="py-2.5 px-3">
                         <div className="flex gap-1">
-                          <input
-                            type="text"
-                            placeholder="Loja"
+                          <select
                             value={editForm.loja || ''}
-                            onChange={(e) =>
-                              setEditForm({ ...editForm, loja: e.target.value })
-                            }
-                            className="w-full h-8 px-2 text-xs bg-white border border-blue-300 rounded focus:ring-1 focus:ring-blue-500"
-                          />
+                            onChange={(e) => {
+                              const lVal = e.target.value;
+                              const lFound = catalogoLojas.find(
+                                (l) => l.nome.trim().toLowerCase() === lVal.trim().toLowerCase()
+                              );
+                              setEditForm({
+                                ...editForm,
+                                loja: lVal,
+                                ...(lFound?.estado ? { estado: lFound.estado } : {}),
+                                ...(lFound?.coordenador ? { coordenador: lFound.coordenador } : {}),
+                              });
+                            }}
+                            className="w-full h-8 px-1.5 text-xs bg-white border border-blue-300 rounded focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                          >
+                            <option value="">Selecione Loja...</option>
+                            {lojasDoCoordenador.map((l) => (
+                              <option key={l} value={l}>
+                                {l}
+                              </option>
+                            ))}
+                          </select>
                           <input
                             type="text"
                             placeholder="UF"
@@ -782,15 +796,20 @@ export const ProductList: React.FC<ProductListProps> = ({
 
                       {/* Coordenador */}
                       <td className="py-2.5 px-3">
-                        <input
-                          type="text"
-                          placeholder="Coordenador"
+                        <select
                           value={editForm.coordenador || ''}
                           onChange={(e) =>
                             setEditForm({ ...editForm, coordenador: e.target.value })
                           }
-                          className="w-full h-8 px-2 text-xs bg-white border border-blue-300 rounded focus:ring-1 focus:ring-blue-500"
-                        />
+                          className="w-full h-8 px-1.5 text-xs bg-white border border-blue-300 rounded focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                        >
+                          <option value="">Selecione Coord...</option>
+                          {coordenadores.map((c) => (
+                            <option key={c} value={c}>
+                              {c}
+                            </option>
+                          ))}
+                        </select>
                       </td>
 
                       {/* Indústria */}
