@@ -19,6 +19,7 @@ import {
   Sparkles,
   Barcode,
   Search,
+  RotateCcw,
 } from 'lucide-react';
 import { ItemValidade, ProdutoCatalogo } from '../types';
 
@@ -79,10 +80,12 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
   const [observacoes, setObservacoes] = useState('');
   const [showExtras, setShowExtras] = useState(false);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
+  const [mensagemAlerta, setMensagemAlerta] = useState<string>('');
 
   // Lista de produtos adicionados para a mesma Loja / Indústria antes de finalizar e enviar
   const [produtosPendentes, setProdutosPendentes] = useState<ItemPendente[]>([]);
 
+  const codigoInputRef = useRef<HTMLInputElement>(null);
   const produtoInputRef = useRef<HTMLInputElement>(null);
 
   // Preenche dados quando um produto for selecionado a partir da aba "Produtos da Base"
@@ -293,15 +296,78 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
     }
   };
 
+  // Ao mudar de indústria manualmente ou por sugestão:
+  const handleMudarIndustria = (novaIndustria: string) => {
+    // Se trocou de indústria, zera os campos do produto atual para não carregar descrições de outra indústria
+    if (novaIndustria.trim().toLowerCase() !== industria.trim().toLowerCase()) {
+      setCodigo('');
+      setProduto('');
+      setDataVencimento('');
+      setLote('');
+      setObservacoes('');
+      setQuantidade(1);
+      setUnidade('un');
+    }
+    setIndustria(novaIndustria);
+  };
+
+  // Zera todos os campos de digitação do cadastro do produto para adicionar outro produto da mesma indústria,
+  // mantendo Loja, Estado e Coordenador intactos para evitar erros de digitação e retrabalho.
+  const handleZerarCamposProduto = (manterIndustria = true) => {
+    setCodigo('');
+    setProduto('');
+    setDataVencimento('');
+    setLote('');
+    setObservacoes('');
+    setQuantidade(1);
+    setUnidade('un');
+
+    if (!manterIndustria) {
+      setIndustria('');
+    }
+
+    if (manterIndustria && industria.trim()) {
+      setMensagemAlerta(`Campos zerados automaticamente para adicionar outro produto da indústria "${industria}".`);
+    } else {
+      setMensagemAlerta('Campos de digitação do produto zerados automaticamente.');
+    }
+    setTimeout(() => setMensagemAlerta(''), 4000);
+
+    setTimeout(() => {
+      if (codigoInputRef.current) {
+        codigoInputRef.current.focus();
+      } else if (produtoInputRef.current) {
+        produtoInputRef.current.focus();
+      }
+    }, 50);
+  };
+
+  // Zera o formulário completamente (Loja, Coordenador, Indústria e Produto)
+  const handleZerarFormularioCompleto = () => {
+    setCodigo('');
+    setProduto('');
+    setIndustria('');
+    setLoja('');
+    setEstado('');
+    setCoordenador('');
+    setDataVencimento('');
+    setLote('');
+    setObservacoes('');
+    setQuantidade(1);
+    setUnidade('un');
+    setProdutosPendentes([]);
+    setMensagemAlerta('Formulário totalmente zerado!');
+    setTimeout(() => setMensagemAlerta(''), 3500);
+  };
+
   // Busca automática DINÂMICA quando o usuário digita ou apaga o código do produto
   const handleCodigoChange = (novoCodigo: string) => {
     setCodigo(novoCodigo);
     const codLimpo = novoCodigo.trim().toLowerCase();
 
-    // Se o usuário apagar ou excluir o código, limpa imediatamente a descrição e a indústria
+    // Se o usuário apagar ou excluir o código, limpa imediatamente a descrição do produto
     if (!codLimpo) {
       setProduto('');
-      setIndustria('');
       return;
     }
 
@@ -343,22 +409,37 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
       // Dinâmico: preenche SEMPRE a indústria correspondente e a descrição do produto!
       // Evita erros de digitar código de uma indústria e aparecer outra
       setProduto(match.nome);
-      setIndustria(match.industria);
+      if (match.industria) {
+        setIndustria(match.industria);
+      }
       if (match.unidade) {
         setUnidade(match.unidade);
       }
     } else {
-      // Código alterado ou não encontrado: limpa descrição e indústria para não deixar resíduo
+      // Código alterado ou não encontrado: limpa a descrição para não deixar resíduo de produto anterior
       setProduto('');
-      setIndustria('');
     }
   };
 
-  // Ao selecionar um produto pelo nome, preenche também o código e a indústria se existirem cadastrados
+  // Ao selecionar um produto pelo nome, preenche também o código e a indústria dinamicamente se existirem cadastrados
   const handleProdutoChange = (novoNomeProduto: string) => {
     setProduto(novoNomeProduto);
     const nomeLimpo = novoNomeProduto.trim().toLowerCase();
-    if (!nomeLimpo) return;
+    if (!nomeLimpo) {
+      // Se apagou o produto, zera o código também para não deixar código residual
+      setCodigo('');
+      return;
+    }
+
+    // Se o código atual for diferente do novo produto selecionado, desvincula o código
+    if (codigo.trim()) {
+      const matchCod = catalogoProdutosDetalhadosSupabase?.find(
+        (p) => String(p.codigo).trim().toLowerCase() === codigo.trim().toLowerCase()
+      );
+      if (matchCod && matchCod.nome.trim().toLowerCase() !== nomeLimpo) {
+        setCodigo('');
+      }
+    }
 
     // 1. Busca no catálogo detalhado de produtos do Supabase
     if (catalogoProdutosDetalhadosSupabase && catalogoProdutosDetalhadosSupabase.length > 0) {
@@ -366,20 +447,18 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
         (p) => p.nome.trim().toLowerCase() === nomeLimpo
       );
       if (match) {
-        if (match.codigo && !codigo.trim()) setCodigo(String(match.codigo));
-        if (match.industria && !industria.trim()) setIndustria(match.industria);
+        if (match.codigo) setCodigo(String(match.codigo));
+        if (match.industria) setIndustria(match.industria);
         if (match.unidade_padrao) setUnidade(match.unidade_padrao);
         return;
       }
     }
 
     // 2. Busca no mapeamento de catalogoProdutosPorIndustria
-    if (!industria.trim()) {
-      for (const [ind, prods] of Object.entries(catalogoProdutosPorIndustria)) {
-        if (Array.isArray(prods) && prods.some((p) => p.trim().toLowerCase() === nomeLimpo)) {
-          setIndustria(ind);
-          break;
-        }
+    for (const [ind, prods] of Object.entries(catalogoProdutosPorIndustria)) {
+      if (Array.isArray(prods) && prods.some((p) => p.trim().toLowerCase() === nomeLimpo)) {
+        setIndustria(ind);
+        break;
       }
     }
 
@@ -388,8 +467,8 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
       (it) => it.produto.trim().toLowerCase() === nomeLimpo
     );
     if (matchItem) {
-      if (matchItem.codigo && !codigo.trim()) setCodigo(String(matchItem.codigo));
-      if (matchItem.industria && !industria.trim()) setIndustria(matchItem.industria);
+      if (matchItem.codigo) setCodigo(String(matchItem.codigo));
+      if (matchItem.industria) setIndustria(matchItem.industria);
       if (matchItem.unidade) setUnidade(matchItem.unidade);
     }
   };
@@ -527,7 +606,21 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
 
   // Adicionar produto atual à fila de produtos para envio conjunto
   const handleAdicionarFila = () => {
-    if (!industria.trim() || !produto.trim() || !dataVencimento) return;
+    if (!industria.trim()) {
+      setMensagemAlerta('Selecione ou digite a Indústria do produto.');
+      setTimeout(() => setMensagemAlerta(''), 3500);
+      return;
+    }
+    if (!produto.trim()) {
+      setMensagemAlerta('Informe ou selecione o Produto antes de adicionar.');
+      setTimeout(() => setMensagemAlerta(''), 3500);
+      return;
+    }
+    if (!dataVencimento) {
+      setMensagemAlerta('Preencha a data de vencimento do produto.');
+      setTimeout(() => setMensagemAlerta(''), 3500);
+      return;
+    }
 
     const novoPendente: ItemPendente = {
       idTemp: 'temp-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
@@ -542,17 +635,27 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
 
     setProdutosPendentes((prev) => [...prev, novoPendente]);
 
-    // Limpa campos do produto mantendo Loja, Estado, Coordenador e Indústria
+    // Zera automaticamente todos os campos de digitação do produto para adicionar o próximo:
     setCodigo('');
     setProduto('');
     setDataVencimento('');
     setLote('');
     setObservacoes('');
     setQuantidade(1);
+    setUnidade('un');
 
-    if (produtoInputRef.current) {
-      produtoInputRef.current.focus();
-    }
+    setMensagemAlerta(
+      `"${novoPendente.produto}" adicionado! Formulário zerado automaticamente para você adicionar o próximo produto.`
+    );
+    setTimeout(() => setMensagemAlerta(''), 4500);
+
+    setTimeout(() => {
+      if (codigoInputRef.current) {
+        codigoInputRef.current.focus();
+      } else if (produtoInputRef.current) {
+        produtoInputRef.current.focus();
+      }
+    }, 50);
   };
 
   // Remove um item da fila temporária
@@ -609,17 +712,23 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
       }
     }
 
-    // Limpa a fila e os campos de produto
+    // Zera completamente a fila e todos os campos do formulário para o próximo lançamento:
     setProdutosPendentes([]);
     setCodigo('');
     setProduto('');
+    setIndustria('');
     setDataVencimento('');
     setLote('');
     setObservacoes('');
     setQuantidade(1);
+    setUnidade('un');
 
     setShowSuccessToast(true);
-    setTimeout(() => setShowSuccessToast(false), 2600);
+    setMensagemAlerta('Produto(s) salvo(s) com sucesso! Formulário zerado automaticamente.');
+    setTimeout(() => {
+      setShowSuccessToast(false);
+      setMensagemAlerta('');
+    }, 3500);
   };
 
   return (
@@ -643,6 +752,21 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
           <div className="flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 text-xs font-medium rounded-full border border-emerald-200 animate-fade-in">
             <Check className="w-3.5 h-3.5" />
             <span>Produtos salvos com sucesso!</span>
+          </div>
+        )}
+
+        {mensagemAlerta && !showSuccessToast && (
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-800 text-xs font-medium rounded-xl border border-blue-200 shadow-2xs animate-fade-in">
+            <Sparkles className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+            <span>{mensagemAlerta}</span>
+            <button
+              type="button"
+              onClick={() => setMensagemAlerta('')}
+              className="text-blue-400 hover:text-blue-700 p-0.5 rounded cursor-pointer"
+              title="Fechar"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
         )}
       </div>
@@ -750,6 +874,7 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
             </div>
             <div className="relative">
               <input
+                ref={codigoInputRef}
                 id="input-codigo-produto"
                 type="text"
                 list="lista-codigos-supabase"
@@ -763,7 +888,7 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
                   type="button"
                   onClick={() => handleCodigoChange('')}
                   className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded cursor-pointer"
-                  title="Limpar código (apaga descrição e indústria)"
+                  title="Limpar código (apaga descrição)"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -801,7 +926,7 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
                 list="lista-industrias"
                 required
                 value={industria}
-                onChange={(e) => setIndustria(e.target.value)}
+                onChange={(e) => handleMudarIndustria(e.target.value)}
                 placeholder="Ex: Nestlé, Ambev..."
                 className="w-full h-11 sm:h-10 px-3 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium"
               />
@@ -820,7 +945,7 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
                   <button
                     key={ind}
                     type="button"
-                    onClick={() => setIndustria(ind)}
+                    onClick={() => handleMudarIndustria(ind)}
                     className="shrink-0 text-[11px] px-2.5 py-1 bg-blue-50 text-blue-700 font-medium rounded-full border border-blue-200/80 active:scale-95 transition"
                   >
                     {ind}
@@ -858,8 +983,18 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
                     ? `Produto da ${industria}...`
                     : 'Digite ou selecione...'
                 }
-                className="w-full h-11 sm:h-10 px-3 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium"
+                className="w-full h-11 sm:h-10 pl-3 pr-8 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium"
               />
+              {produto && (
+                <button
+                  type="button"
+                  onClick={() => handleProdutoChange('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded cursor-pointer"
+                  title="Limpar descrição do produto"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
               <datalist id="lista-produtos-sugeridos">
                 {sugestoesProdutosPorIndustria.map((prod) => (
                   <option key={prod} value={prod} />
@@ -1140,21 +1275,47 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
           </div>
         )}
 
-        {/* Barra de Ações: Adicionar outro produto & Finalizar e Enviar */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-2 border-t border-slate-100">
-          {/* Botão de Adicionar outro produto daquela indústria */}
-          <button
-            id="btn-adicionar-outro-produto"
-            type="button"
-            onClick={handleAdicionarFila}
-            disabled={!industria.trim() || !produto.trim() || !dataVencimento}
-            className="inline-flex items-center justify-center gap-2 h-11 sm:h-10 px-4 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 disabled:opacity-40 text-slate-800 text-xs font-semibold rounded-xl transition cursor-pointer"
-          >
-            <PackagePlus className="w-4 h-4 text-slate-600" />
-            <span>+ Adicionar outro produto desta indústria</span>
-          </button>
+        {/* Barra de Ações: Adicionar outro produto, Zerar campos, Limpar tudo & Finalizar/Salvar */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-3 border-t border-slate-100">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Botão de Adicionar outro produto */}
+            <button
+              id="btn-adicionar-outro-produto"
+              type="button"
+              onClick={handleAdicionarFila}
+              className="inline-flex items-center justify-center gap-2 h-11 sm:h-10 px-4 bg-blue-50 hover:bg-blue-100 active:bg-blue-200 text-blue-800 text-xs font-bold rounded-xl border border-blue-200/80 transition cursor-pointer"
+              title="Salva este produto na lista e zera automaticamente os campos para adicionar o próximo produto"
+            >
+              <PackagePlus className="w-4 h-4 text-blue-600" />
+              <span>+ Adicionar outro produto {industria ? `(${industria})` : ''}</span>
+            </button>
 
-          {/* Botão de Finalizar e Enviar */}
+            {/* Botão para Zerar campos de digitação do produto */}
+            <button
+              id="btn-zerar-campos-produto"
+              type="button"
+              onClick={() => handleZerarCamposProduto(true)}
+              className="inline-flex items-center justify-center gap-1.5 h-11 sm:h-10 px-3 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 text-xs font-semibold rounded-xl border border-slate-200 transition cursor-pointer"
+              title="Zera os campos de produto, código e validade para começar um item limpo"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
+              <span>Zerar campos</span>
+            </button>
+
+            {/* Botão para Limpar todo o formulário (incluindo loja e indústria) */}
+            <button
+              id="btn-zerar-formulario-completo"
+              type="button"
+              onClick={handleZerarFormularioCompleto}
+              className="inline-flex items-center justify-center gap-1.5 h-11 sm:h-10 px-3 bg-white hover:bg-red-50 hover:text-red-700 text-slate-500 text-xs font-medium rounded-xl border border-slate-200 hover:border-red-200 transition cursor-pointer"
+              title="Zera tudo: Loja, Indústria, Coordenador e Produtos"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-slate-400 hover:text-red-500" />
+              <span>Limpar tudo</span>
+            </button>
+          </div>
+
+          {/* Botão de Finalizar e Enviar / Salvar */}
           <button
             id="btn-finalizar-enviar"
             type="submit"
@@ -1164,13 +1325,14 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
                 (!industria.trim() || !produto.trim() || !dataVencimento))
             }
             className="inline-flex items-center justify-center gap-2 h-12 sm:h-10 px-6 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 disabled:opacity-50 text-white text-sm font-bold rounded-xl shadow-xs transition cursor-pointer"
+            title="Salva os produtos no Supabase e zera automaticamente o formulário"
           >
             <Send className="w-4 h-4" />
             <span>
               {isSaving
                 ? 'Enviando ao Supabase...'
                 : produtosPendentes.length > 0
-                ? `Finalizar e Enviar (${produtosPendentes.length + (produto.trim() && dataVencimento ? 1 : 0)} itens)`
+                ? `Salvar e Enviar (${produtosPendentes.length + (produto.trim() && dataVencimento ? 1 : 0)} itens)`
                 : 'Salvar e Enviar'}
             </span>
           </button>

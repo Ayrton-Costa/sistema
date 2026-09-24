@@ -166,9 +166,11 @@ export const ProductRegistrationView: React.FC<ProductRegistrationViewProps> = (
             `Produto salvo localmente. ${res.error ? `Aviso Supabase: ${res.error}` : 'Conecte o Supabase para sincronizar.'}`
           );
         }
-        // Limpa formulário
-        setProduto('');
+        // Limpa formulário completo automaticamente para o próximo cadastro
         setCodigo('');
+        setProduto('');
+        setIndustria('');
+        setUnidade('un');
       } else {
         dispararFeedback('erro', res.error || 'Erro ao cadastrar produto.');
       }
