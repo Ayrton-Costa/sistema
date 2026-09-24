@@ -610,6 +610,7 @@ export default function App() {
             items={items}
             catalogoLojas={catalogoSupabase.lojas}
             catalogoCoordenadores={catalogoSupabase.coordenadores}
+            catalogoIndustrias={catalogoSupabase.industrias}
             industryLogos={industryLogos}
             storeLogos={storeLogos}
             coordinatorLogos={coordinatorLogos}
@@ -622,6 +623,7 @@ export default function App() {
             items={items}
             catalogoLojas={catalogoSupabase.lojas}
             catalogoCoordenadores={catalogoSupabase.coordenadores}
+            catalogoIndustrias={catalogoSupabase.industrias}
             catalogoProdutos={catalogoSupabase.produtosDetalhados}
             filtroStatus={filtroStatus}
             aoMudarFiltroStatus={setFiltroStatus}

@@ -30,6 +30,7 @@ interface ProductListProps {
   items: ItemValidade[];
   catalogoLojas?: Array<{ nome: string; estado?: string; coordenador?: string }>;
   catalogoCoordenadores?: string[];
+  catalogoIndustrias?: string[];
   catalogoProdutos?: ProdutoCatalogo[];
   filtroStatus: FiltroStatus;
   aoMudarFiltroStatus: (filtro: FiltroStatus) => void;
@@ -44,6 +45,7 @@ export const ProductList: React.FC<ProductListProps> = ({
   items,
   catalogoLojas = [],
   catalogoCoordenadores = [],
+  catalogoIndustrias = [],
   catalogoProdutos = [],
   filtroStatus,
   aoMudarFiltroStatus,
@@ -78,40 +80,65 @@ export const ProductList: React.FC<ProductListProps> = ({
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [items, catalogoCoordenadores, catalogoLojas]);
 
-  // Lista de lojas vinculadas ao coordenador selecionado
+  // Lista de lojas vinculadas ao coordenador e estado selecionados
   const lojasDoCoordenador = useMemo(() => {
     const set = new Set<string>();
     // Lojas dos itens
     items.forEach((it) => {
       if (!it.loja) return;
-      if (coordenadorSelecionado === 'todos') {
-        set.add(it.loja.trim());
-      } else if (it.coordenador && it.coordenador.trim() === coordenadorSelecionado) {
-        set.add(it.loja.trim());
-      }
+      if (coordenadorSelecionado !== 'todos' && it.coordenador?.trim() !== coordenadorSelecionado) return;
+      if (estadoSelecionado !== 'todos' && (it.estado || '').trim().toUpperCase() !== estadoSelecionado) return;
+      set.add(it.loja.trim());
     });
 
     // Lojas cadastradas no catálogo do Supabase
     catalogoLojas.forEach((l) => {
       if (!l.nome) return;
-      if (coordenadorSelecionado === 'todos') {
-        set.add(l.nome.trim());
-      } else if (l.coordenador && l.coordenador.trim() === coordenadorSelecionado) {
-        set.add(l.nome.trim());
-      }
+      if (coordenadorSelecionado !== 'todos' && l.coordenador?.trim() !== coordenadorSelecionado) return;
+      if (estadoSelecionado !== 'todos' && (l.estado || '').trim().toUpperCase() !== estadoSelecionado) return;
+      set.add(l.nome.trim());
     });
 
     return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [items, catalogoLojas, coordenadorSelecionado]);
+  }, [items, catalogoLojas, coordenadorSelecionado, estadoSelecionado]);
 
   // Se o coordenador mudou e a loja selecionada não pertence a ele, reseta a loja para "todas"
   const handleMudarCoordenador = (novoCoord: string) => {
     setCoordenadorSelecionado(novoCoord);
-    if (novoCoord !== 'todos' && lojaSelecionada !== 'todas') {
-      const lojaPertenceAoCoord =
-        items.some((it) => it.loja?.trim() === lojaSelecionada && it.coordenador?.trim() === novoCoord) ||
-        catalogoLojas.some((l) => l.nome?.trim() === lojaSelecionada && l.coordenador?.trim() === novoCoord);
-      if (!lojaPertenceAoCoord) {
+    if (lojaSelecionada !== 'todas') {
+      const lojaPertence =
+        items.some((it) =>
+          it.loja?.trim() === lojaSelecionada &&
+          (novoCoord === 'todos' || it.coordenador?.trim() === novoCoord) &&
+          (estadoSelecionado === 'todos' || (it.estado || '').trim().toUpperCase() === estadoSelecionado)
+        ) ||
+        catalogoLojas.some((l) =>
+          l.nome?.trim() === lojaSelecionada &&
+          (novoCoord === 'todos' || l.coordenador?.trim() === novoCoord) &&
+          (estadoSelecionado === 'todos' || (l.estado || '').trim().toUpperCase() === estadoSelecionado)
+        );
+      if (!lojaPertence) {
+        setLojaSelecionada('todas');
+      }
+    }
+  };
+
+  // Se o estado mudou e a loja selecionada não pertence a ele, reseta a loja para "todas"
+  const handleMudarEstado = (novoEstado: string) => {
+    setEstadoSelecionado(novoEstado);
+    if (lojaSelecionada !== 'todas') {
+      const lojaPertence =
+        items.some((it) =>
+          it.loja?.trim() === lojaSelecionada &&
+          (coordenadorSelecionado === 'todos' || it.coordenador?.trim() === coordenadorSelecionado) &&
+          (novoEstado === 'todos' || (it.estado || '').trim().toUpperCase() === novoEstado)
+        ) ||
+        catalogoLojas.some((l) =>
+          l.nome?.trim() === lojaSelecionada &&
+          (coordenadorSelecionado === 'todos' || l.coordenador?.trim() === coordenadorSelecionado) &&
+          (novoEstado === 'todos' || (l.estado || '').trim().toUpperCase() === novoEstado)
+        );
+      if (!lojaPertence) {
         setLojaSelecionada('todas');
       }
     }
@@ -126,8 +153,11 @@ export const ProductList: React.FC<ProductListProps> = ({
     catalogoProdutos.forEach((p) => {
       if (p.industria) set.add(p.industria.trim());
     });
+    catalogoIndustrias.forEach((ind) => {
+      if (ind) set.add(ind.trim());
+    });
     return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [items, catalogoProdutos]);
+  }, [items, catalogoProdutos, catalogoIndustrias]);
 
   // Lista de produtos disponíveis para filtro (filtrados pela indústria selecionada, se houver)
   const produtosFiltroOpcoes = useMemo(() => {
@@ -149,7 +179,7 @@ export const ProductList: React.FC<ProductListProps> = ({
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [items, catalogoProdutos, industriaSelecionada]);
 
-  // Lista única de estados cadastrados para filtro
+  // Lista única de estados cadastrados para filtro (com fallback para UFs padrão do Brasil)
   const estados = useMemo(() => {
     const set = new Set<string>();
     items.forEach((it) => {
@@ -158,8 +188,34 @@ export const ProductList: React.FC<ProductListProps> = ({
     catalogoLojas.forEach((l) => {
       if (l.estado) set.add(l.estado.trim().toUpperCase());
     });
+    if (set.size === 0) {
+      return [
+        'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA',
+        'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN',
+        'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO',
+      ];
+    }
     return Array.from(set).sort();
   }, [items, catalogoLojas]);
+
+  const limparTodosFiltros = () => {
+    setBusca('');
+    setCoordenadorSelecionado('todos');
+    setLojaSelecionada('todas');
+    setEstadoSelecionado('todos');
+    setIndustriaSelecionada('todas');
+    setProdutoSelecionado('todos');
+    aoMudarFiltroStatus('todos');
+  };
+
+  const temFiltroAtivo =
+    Boolean(busca.trim()) ||
+    coordenadorSelecionado !== 'todos' ||
+    lojaSelecionada !== 'todas' ||
+    estadoSelecionado !== 'todos' ||
+    industriaSelecionada !== 'todas' ||
+    produtoSelecionado !== 'todos' ||
+    filtroStatus !== 'todos';
 
   // Filtragem e ordenação
   const itensFiltrados = useMemo(() => {
@@ -359,16 +415,19 @@ export const ProductList: React.FC<ProductListProps> = ({
             </div>
 
             {/* Filtro Estado */}
-            {estados.length > 0 && (
-              <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2 h-10">
-                <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 h-10 shadow-2xs">
+              <MapPin className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+              <div className="flex flex-col">
+                <span className="text-[9px] uppercase font-bold text-amber-600 tracking-wider leading-none">
+                  Estado
+                </span>
                 <select
                   id="select-filtro-estado"
                   value={estadoSelecionado}
-                  onChange={(e) => setEstadoSelecionado(e.target.value)}
-                  className="text-xs bg-transparent focus:outline-none font-medium text-slate-700 cursor-pointer"
+                  onChange={(e) => handleMudarEstado(e.target.value)}
+                  className="text-xs bg-transparent focus:outline-none font-semibold text-slate-800 cursor-pointer max-w-[110px] truncate"
                 >
-                  <option value="todos">Todos Estados</option>
+                  <option value="todos">Todos ({estados.length})</option>
                   {estados.map((uf) => (
                     <option key={uf} value={uf}>
                       {uf}
@@ -376,12 +435,15 @@ export const ProductList: React.FC<ProductListProps> = ({
                   ))}
                 </select>
               </div>
-            )}
+            </div>
 
             {/* Filtro Indústria */}
-            {industrias.length > 0 && (
-              <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 h-10">
-                <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 h-10 shadow-2xs">
+              <Building2 className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+              <div className="flex flex-col">
+                <span className="text-[9px] uppercase font-bold text-purple-600 tracking-wider leading-none">
+                  Indústria
+                </span>
                 <select
                   id="select-filtro-industria"
                   value={industriaSelecionada}
@@ -389,9 +451,9 @@ export const ProductList: React.FC<ProductListProps> = ({
                     setIndustriaSelecionada(e.target.value);
                     setProdutoSelecionado('todos');
                   }}
-                  className="text-xs bg-transparent focus:outline-none font-medium text-slate-700 cursor-pointer max-w-[130px] truncate"
+                  className="text-xs bg-transparent focus:outline-none font-semibold text-slate-800 cursor-pointer max-w-[140px] truncate"
                 >
-                  <option value="todas">Todas as Indústrias ({industrias.length})</option>
+                  <option value="todas">Todas ({industrias.length})</option>
                   {industrias.map((ind) => (
                     <option key={ind} value={ind}>
                       {ind}
@@ -399,44 +461,67 @@ export const ProductList: React.FC<ProductListProps> = ({
                   ))}
                 </select>
               </div>
-            )}
+            </div>
 
             {/* Filtro de Produto da Base */}
             {produtosFiltroOpcoes.length > 0 && (
-              <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 h-10">
+              <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 h-10 shadow-2xs">
                 <Package className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                <select
-                  id="select-filtro-produto"
-                  value={produtoSelecionado}
-                  onChange={(e) => setProdutoSelecionado(e.target.value)}
-                  className="text-xs bg-transparent focus:outline-none font-medium text-slate-700 cursor-pointer max-w-[150px] truncate"
-                  title="Filtrar por produto específico"
-                >
-                  <option value="todos">Todos os Produtos ({produtosFiltroOpcoes.length})</option>
-                  {produtosFiltroOpcoes.map((prod) => (
-                    <option key={prod} value={prod}>
-                      {prod}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex flex-col">
+                  <span className="text-[9px] uppercase font-bold text-blue-500 tracking-wider leading-none">
+                    Produto
+                  </span>
+                  <select
+                    id="select-filtro-produto"
+                    value={produtoSelecionado}
+                    onChange={(e) => setProdutoSelecionado(e.target.value)}
+                    className="text-xs bg-transparent focus:outline-none font-semibold text-slate-800 cursor-pointer max-w-[150px] truncate"
+                    title="Filtrar por produto específico"
+                  >
+                    <option value="todos">Todos ({produtosFiltroOpcoes.length})</option>
+                    {produtosFiltroOpcoes.map((prod) => (
+                      <option key={prod} value={prod}>
+                        {prod}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             )}
 
-            <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 h-10">
+            <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 h-10 shadow-2xs">
               <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-              <select
-                id="select-ordenacao"
-                value={ordenacao}
-                onChange={(e) => setOrdenacao(e.target.value as SortOrder)}
-                className="text-xs bg-transparent focus:outline-none font-medium text-slate-700 cursor-pointer"
-              >
-                <option value="vencimento_asc">Vencimento (Mais Próximo)</option>
-                <option value="vencimento_desc">Vencimento (Mais Distante)</option>
-                <option value="industria_asc">Indústria (A-Z)</option>
-                <option value="loja_asc">Loja (A-Z)</option>
-                <option value="quantidade_desc">Maior Quantidade</option>
-              </select>
+              <div className="flex flex-col">
+                <span className="text-[9px] uppercase font-bold text-slate-400 tracking-wider leading-none">
+                  Ordem
+                </span>
+                <select
+                  id="select-ordenacao"
+                  value={ordenacao}
+                  onChange={(e) => setOrdenacao(e.target.value as SortOrder)}
+                  className="text-xs bg-transparent focus:outline-none font-semibold text-slate-800 cursor-pointer"
+                >
+                  <option value="vencimento_asc">Vencimento (Mais Próximo)</option>
+                  <option value="vencimento_desc">Vencimento (Mais Distante)</option>
+                  <option value="industria_asc">Indústria (A-Z)</option>
+                  <option value="loja_asc">Loja (A-Z)</option>
+                  <option value="quantidade_desc">Maior Quantidade</option>
+                </select>
+              </div>
             </div>
+
+            {/* Botão de Limpar Filtros quando algum estiver ativo */}
+            {temFiltroAtivo && (
+              <button
+                type="button"
+                onClick={limparTodosFiltros}
+                className="inline-flex items-center gap-1.5 h-10 px-3 text-xs text-rose-700 bg-rose-50 hover:bg-rose-100 rounded-lg border border-rose-200 font-semibold transition cursor-pointer shrink-0"
+                title="Limpar todos os filtros da tabela"
+              >
+                <X className="w-3.5 h-3.5" />
+                <span>Limpar</span>
+              </button>
+            )}
 
             {/* Botão de Extrair em Excel */}
             <button
@@ -514,22 +599,110 @@ export const ProductList: React.FC<ProductListProps> = ({
           </button>
         </div>
 
-        {/* Notificação / Indicador de Coordenador Ativo */}
-        {coordenadorSelecionado !== 'todos' && (
-          <div className="flex items-center justify-between bg-indigo-50 border border-indigo-200 text-indigo-900 rounded-lg px-3 py-1.5 text-xs">
-            <div className="flex items-center gap-2">
-              <UserCheck className="w-4 h-4 text-indigo-600 shrink-0" />
-              <span>
-                Filtrando pelo Coordenador: <strong>{coordenadorSelecionado}</strong> — Mostrando apenas as{' '}
-                <strong>{lojasDoCoordenador.length} loja(s)</strong> sob sua supervisão.
+        {/* Badges de Filtros Ativos na Tabela */}
+        {temFiltroAtivo && (
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <span className="text-xs text-slate-500 font-semibold flex items-center gap-1">
+              <Filter className="w-3 h-3 text-slate-400" /> Filtros ativos:
+            </span>
+            {busca.trim() && (
+              <span className="inline-flex items-center gap-1 text-xs text-slate-700 bg-slate-100 border border-slate-200 px-2.5 py-0.5 rounded-lg font-medium">
+                <span>Busca: <strong>"{busca}"</strong></span>
+                <button
+                  type="button"
+                  onClick={() => setBusca('')}
+                  className="p-0.5 hover:bg-slate-200 rounded text-slate-500 cursor-pointer"
+                >
+                  <X className="w-3 h-3" />
+                </button>
               </span>
-            </div>
+            )}
+            {coordenadorSelecionado !== 'todos' && (
+              <span className="inline-flex items-center gap-1 text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 rounded-lg font-medium">
+                <UserCheck className="w-3 h-3 text-indigo-600 shrink-0" />
+                <span>Coord: <strong>{coordenadorSelecionado}</strong></span>
+                <button
+                  type="button"
+                  onClick={() => handleMudarCoordenador('todos')}
+                  className="p-0.5 hover:bg-indigo-100 rounded text-indigo-500 cursor-pointer"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            {lojaSelecionada !== 'todas' && (
+              <span className="inline-flex items-center gap-1 text-xs text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-0.5 rounded-lg font-medium">
+                <Store className="w-3 h-3 text-blue-600 shrink-0" />
+                <span>Loja: <strong>{lojaSelecionada}</strong></span>
+                <button
+                  type="button"
+                  onClick={() => setLojaSelecionada('todas')}
+                  className="p-0.5 hover:bg-blue-100 rounded text-blue-500 cursor-pointer"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            {estadoSelecionado !== 'todos' && (
+              <span className="inline-flex items-center gap-1 text-xs text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-0.5 rounded-lg font-medium">
+                <MapPin className="w-3 h-3 text-amber-600 shrink-0" />
+                <span>UF: <strong>{estadoSelecionado}</strong></span>
+                <button
+                  type="button"
+                  onClick={() => handleMudarEstado('todos')}
+                  className="p-0.5 hover:bg-amber-100 rounded text-amber-600 cursor-pointer"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            {industriaSelecionada !== 'todas' && (
+              <span className="inline-flex items-center gap-1 text-xs text-purple-700 bg-purple-50 border border-purple-200 px-2.5 py-0.5 rounded-lg font-medium">
+                <Building2 className="w-3 h-3 text-purple-600 shrink-0" />
+                <span>Indústria: <strong>{industriaSelecionada}</strong></span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIndustriaSelecionada('todas');
+                    setProdutoSelecionado('todos');
+                  }}
+                  className="p-0.5 hover:bg-purple-100 rounded text-purple-500 cursor-pointer"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            {produtoSelecionado !== 'todos' && (
+              <span className="inline-flex items-center gap-1 text-xs text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-0.5 rounded-lg font-medium">
+                <Package className="w-3 h-3 text-blue-600 shrink-0" />
+                <span>Produto: <strong>{produtoSelecionado}</strong></span>
+                <button
+                  type="button"
+                  onClick={() => setProdutoSelecionado('todos')}
+                  className="p-0.5 hover:bg-blue-100 rounded text-blue-500 cursor-pointer"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            {filtroStatus !== 'todos' && (
+              <span className="inline-flex items-center gap-1 text-xs text-slate-700 bg-slate-100 border border-slate-200 px-2.5 py-0.5 rounded-lg font-medium">
+                <span>Status: <strong>{filtroStatus}</strong></span>
+                <button
+                  type="button"
+                  onClick={() => aoMudarFiltroStatus('todos')}
+                  className="p-0.5 hover:bg-slate-200 rounded text-slate-500 cursor-pointer"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
             <button
               type="button"
-              onClick={() => handleMudarCoordenador('todos')}
-              className="text-xs font-semibold text-indigo-700 hover:text-indigo-900 underline ml-2 cursor-pointer"
+              onClick={limparTodosFiltros}
+              className="text-xs text-slate-500 hover:text-slate-800 underline font-semibold ml-1 cursor-pointer"
             >
-              Ver todos os coordenadores
+              Limpar Todos
             </button>
           </div>
         )}

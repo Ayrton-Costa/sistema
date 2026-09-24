@@ -26,6 +26,7 @@ import {
   Sparkles,
   UserCheck,
   Filter,
+  MapPin,
 } from 'lucide-react';
 import { ItemValidade, NivelHierarquia } from '../types';
 import { IndustryLogoItem } from '../lib/firebase';
@@ -40,6 +41,7 @@ interface HierarchyViewProps {
   items: ItemValidade[];
   catalogoLojas?: Array<{ nome: string; estado?: string; coordenador?: string }>;
   catalogoCoordenadores?: string[];
+  catalogoIndustrias?: string[];
   industryLogos?: Record<string, { logoUrl?: string; [key: string]: any }>;
   storeLogos?: Record<string, { logoUrl?: string; [key: string]: any }>;
   coordinatorLogos?: Record<string, { logoUrl?: string; [key: string]: any }>;
@@ -65,13 +67,14 @@ const ROTULOS_NIVEL: Record<NivelHierarquia, { nome: string; icone: React.FC<any
   loja: { nome: 'Loja', icone: Store, cor: 'text-blue-600', bg: 'bg-blue-50 border-blue-200' },
   industria: { nome: 'Indústria / Marca', icone: Building2, cor: 'text-purple-600', bg: 'bg-purple-50 border-purple-200' },
   coordenador: { nome: 'Coordenador', icone: UserCheck, cor: 'text-indigo-600', bg: 'bg-indigo-50 border-indigo-200' },
-  estado: { nome: 'Estado (UF)', icone: Store, cor: 'text-amber-600', bg: 'bg-amber-50 border-amber-200' },
+  estado: { nome: 'Estado (UF)', icone: MapPin, cor: 'text-amber-600', bg: 'bg-amber-50 border-amber-200' },
 };
 
 export const HierarchyView: React.FC<HierarchyViewProps> = ({
   items,
   catalogoLojas = [],
   catalogoCoordenadores = [],
+  catalogoIndustrias = [],
   industryLogos = {},
   storeLogos = {},
   coordinatorLogos = {},
@@ -84,9 +87,11 @@ export const HierarchyView: React.FC<HierarchyViewProps> = ({
   const [mostrarPainelPrecedencia, setMostrarPainelPrecedencia] = useState(false);
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
 
-  // Filtro de coordenador e loja específico para a visualização hierárquica
+  // Filtros rápidos para a visualização hierárquica
   const [coordenadorFiltro, setCoordenadorFiltro] = useState<string>('todos');
   const [lojaFiltro, setLojaFiltro] = useState<string>('todas');
+  const [estadoFiltro, setEstadoFiltro] = useState<string>('todos');
+  const [industriaFiltro, setIndustriaFiltro] = useState<string>('todas');
 
   // Estado de edição inline de produto
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -107,54 +112,131 @@ export const HierarchyView: React.FC<HierarchyViewProps> = ({
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [items, catalogoCoordenadores, catalogoLojas]);
 
-  // Lista de lojas vinculadas ao coordenador selecionado
-  const lojasDoCoordenador = useMemo(() => {
+  // Lista única de estados (itens + catálogo + UFs padrão do Brasil se vazio)
+  const listaEstados = useMemo(() => {
+    const set = new Set<string>();
+    items.forEach((it) => {
+      if (it.estado) set.add(it.estado.trim().toUpperCase());
+    });
+    catalogoLojas.forEach((l) => {
+      if (l.estado) set.add(l.estado.trim().toUpperCase());
+    });
+    if (set.size === 0) {
+      return [
+        'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA',
+        'MT', 'MS', 'MG', 'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN',
+        'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO',
+      ];
+    }
+    return Array.from(set).sort();
+  }, [items, catalogoLojas]);
+
+  // Lista única de indústrias cadastradas (itens + catálogo + logos)
+  const listaIndustrias = useMemo(() => {
+    const set = new Set<string>();
+    items.forEach((it) => {
+      if (it.industria) set.add(it.industria.trim());
+    });
+    catalogoIndustrias.forEach((ind) => {
+      if (ind) set.add(ind.trim());
+    });
+    Object.keys(industryLogos).forEach((ind) => {
+      if (ind) set.add(ind.trim());
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [items, catalogoIndustrias, industryLogos]);
+
+  // Lista de lojas vinculadas ao coordenador e estado selecionados
+  const lojasFiltradas = useMemo(() => {
     const set = new Set<string>();
     items.forEach((it) => {
       if (!it.loja) return;
-      if (coordenadorFiltro === 'todos') {
-        set.add(it.loja.trim());
-      } else if (it.coordenador && it.coordenador.trim() === coordenadorFiltro) {
-        set.add(it.loja.trim());
-      }
+      if (coordenadorFiltro !== 'todos' && it.coordenador?.trim() !== coordenadorFiltro) return;
+      if (estadoFiltro !== 'todos' && (it.estado || '').trim().toUpperCase() !== estadoFiltro) return;
+      set.add(it.loja.trim());
     });
 
     catalogoLojas.forEach((l) => {
       if (!l.nome) return;
-      if (coordenadorFiltro === 'todos') {
-        set.add(l.nome.trim());
-      } else if (l.coordenador && l.coordenador.trim() === coordenadorFiltro) {
-        set.add(l.nome.trim());
-      }
+      if (coordenadorFiltro !== 'todos' && l.coordenador?.trim() !== coordenadorFiltro) return;
+      if (estadoFiltro !== 'todos' && (l.estado || '').trim().toUpperCase() !== estadoFiltro) return;
+      set.add(l.nome.trim());
     });
 
     return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [items, catalogoLojas, coordenadorFiltro]);
+  }, [items, catalogoLojas, coordenadorFiltro, estadoFiltro]);
 
   const handleMudarCoordenadorFiltro = (novoCoord: string) => {
     setCoordenadorFiltro(novoCoord);
-    if (novoCoord !== 'todos' && lojaFiltro !== 'todas') {
+    if (lojaFiltro !== 'todas') {
       const pertence =
-        items.some((it) => it.loja?.trim() === lojaFiltro && it.coordenador?.trim() === novoCoord) ||
-        catalogoLojas.some((l) => l.nome?.trim() === lojaFiltro && l.coordenador?.trim() === novoCoord);
+        items.some((it) =>
+          it.loja?.trim() === lojaFiltro &&
+          (novoCoord === 'todos' || it.coordenador?.trim() === novoCoord) &&
+          (estadoFiltro === 'todos' || (it.estado || '').trim().toUpperCase() === estadoFiltro)
+        ) ||
+        catalogoLojas.some((l) =>
+          l.nome?.trim() === lojaFiltro &&
+          (novoCoord === 'todos' || l.coordenador?.trim() === novoCoord) &&
+          (estadoFiltro === 'todos' || (l.estado || '').trim().toUpperCase() === estadoFiltro)
+        );
       if (!pertence) {
         setLojaFiltro('todas');
       }
     }
   };
 
+  const handleMudarEstadoFiltro = (novoEstado: string) => {
+    setEstadoFiltro(novoEstado);
+    if (lojaFiltro !== 'todas') {
+      const pertence =
+        items.some((it) =>
+          it.loja?.trim() === lojaFiltro &&
+          (coordenadorFiltro === 'todos' || it.coordenador?.trim() === coordenadorFiltro) &&
+          (novoEstado === 'todos' || (it.estado || '').trim().toUpperCase() === novoEstado)
+        ) ||
+        catalogoLojas.some((l) =>
+          l.nome?.trim() === lojaFiltro &&
+          (coordenadorFiltro === 'todos' || l.coordenador?.trim() === coordenadorFiltro) &&
+          (novoEstado === 'todos' || (l.estado || '').trim().toUpperCase() === novoEstado)
+        );
+      if (!pertence) {
+        setLojaFiltro('todas');
+      }
+    }
+  };
+
+  const limparTodosFiltros = () => {
+    setCoordenadorFiltro('todos');
+    setLojaFiltro('todas');
+    setEstadoFiltro('todos');
+    setIndustriaFiltro('todas');
+  };
+
+  const temFiltroAtivo =
+    coordenadorFiltro !== 'todos' ||
+    lojaFiltro !== 'todas' ||
+    estadoFiltro !== 'todos' ||
+    industriaFiltro !== 'todas';
+
   // Itens filtrados para alimentar a árvore hierárquica
   const itensParaArvore = useMemo(() => {
     return items.filter((it) => {
       if (coordenadorFiltro !== 'todos') {
-        if (it.coordenador !== coordenadorFiltro) return false;
+        if (it.coordenador?.trim() !== coordenadorFiltro) return false;
       }
       if (lojaFiltro !== 'todas') {
-        if (it.loja !== lojaFiltro) return false;
+        if (it.loja?.trim() !== lojaFiltro) return false;
+      }
+      if (estadoFiltro !== 'todos') {
+        if ((it.estado || '').trim().toUpperCase() !== estadoFiltro) return false;
+      }
+      if (industriaFiltro !== 'todas') {
+        if (it.industria?.trim() !== industriaFiltro) return false;
       }
       return true;
     });
-  }, [items, coordenadorFiltro, lojaFiltro]);
+  }, [items, coordenadorFiltro, lojaFiltro, estadoFiltro, industriaFiltro]);
 
   // Níveis disponíveis que podem ser adicionados
   const niveisPossiveis: NivelHierarquia[] = ['loja', 'industria', 'coordenador', 'estado'];
@@ -895,9 +977,9 @@ export const HierarchyView: React.FC<HierarchyViewProps> = ({
         </div>
       </div>
 
-      {/* Barra de Filtro Rápido de Coordenador e Lojas Associadas */}
+      {/* Barra de Filtro Rápido de Coordenador, Loja, Estado e Indústria */}
       <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-2xs flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
           {/* Seletor de Coordenador */}
           <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-2.5 h-10 shadow-2xs">
             <UserCheck className="w-4 h-4 text-indigo-600 shrink-0" />
@@ -909,7 +991,7 @@ export const HierarchyView: React.FC<HierarchyViewProps> = ({
                 id="select-hierarquia-coordenador"
                 value={coordenadorFiltro}
                 onChange={(e) => handleMudarCoordenadorFiltro(e.target.value)}
-                className="text-xs bg-transparent focus:outline-none font-semibold text-slate-800 cursor-pointer max-w-[150px] truncate"
+                className="text-xs bg-transparent focus:outline-none font-semibold text-slate-800 cursor-pointer max-w-[140px] truncate"
               >
                 <option value="todos">Todos ({listaCoordenadores.length})</option>
                 {listaCoordenadores.map((coord) => (
@@ -921,7 +1003,7 @@ export const HierarchyView: React.FC<HierarchyViewProps> = ({
             </div>
           </div>
 
-          {/* Seletor de Loja (vinculada ao coordenador) */}
+          {/* Seletor de Loja (vinculada ao coordenador e estado) */}
           <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-2.5 h-10 shadow-2xs">
             <Store className="w-4 h-4 text-blue-600 shrink-0" />
             <div className="flex flex-col">
@@ -932,14 +1014,14 @@ export const HierarchyView: React.FC<HierarchyViewProps> = ({
                 id="select-hierarquia-loja"
                 value={lojaFiltro}
                 onChange={(e) => setLojaFiltro(e.target.value)}
-                className="text-xs bg-transparent focus:outline-none font-semibold text-slate-800 cursor-pointer max-w-[160px] truncate"
+                className="text-xs bg-transparent focus:outline-none font-semibold text-slate-800 cursor-pointer max-w-[150px] truncate"
               >
                 <option value="todas">
                   {coordenadorFiltro !== 'todos'
-                    ? `Todas do Coord. (${lojasDoCoordenador.length})`
-                    : `Todas as Lojas (${lojasDoCoordenador.length})`}
+                    ? `Todas do Coord. (${lojasFiltradas.length})`
+                    : `Todas as Lojas (${lojasFiltradas.length})`}
                 </option>
-                {lojasDoCoordenador.map((loja) => (
+                {lojasFiltradas.map((loja) => (
                   <option key={loja} value={loja}>
                     {loja}
                   </option>
@@ -948,27 +1030,142 @@ export const HierarchyView: React.FC<HierarchyViewProps> = ({
             </div>
           </div>
 
-          {/* Resumo da Filtragem */}
-          {coordenadorFiltro !== 'todos' && (
-            <div className="inline-flex items-center gap-1.5 text-xs text-indigo-700 bg-indigo-50 px-2.5 py-1.5 rounded-lg border border-indigo-200 font-medium">
-              <span>
-                Mostrando <strong>{lojasDoCoordenador.length} loja(s)</strong> vinculadas a <strong>{coordenadorFiltro}</strong>
+          {/* Seletor de Estado (UF) */}
+          <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-2.5 h-10 shadow-2xs">
+            <MapPin className="w-4 h-4 text-amber-600 shrink-0" />
+            <div className="flex flex-col">
+              <span className="text-[9px] uppercase font-bold text-amber-600 tracking-wider leading-none">
+                Filtrar Estado
               </span>
-              <button
-                type="button"
-                onClick={() => handleMudarCoordenadorFiltro('todos')}
-                className="text-[11px] underline font-bold ml-1 hover:text-indigo-900 cursor-pointer"
+              <select
+                id="select-hierarquia-estado"
+                value={estadoFiltro}
+                onChange={(e) => handleMudarEstadoFiltro(e.target.value)}
+                className="text-xs bg-transparent focus:outline-none font-semibold text-slate-800 cursor-pointer max-w-[120px] truncate"
               >
-                Limpar
-              </button>
+                <option value="todos">Todos Estados ({listaEstados.length})</option>
+                {listaEstados.map((uf) => (
+                  <option key={uf} value={uf}>
+                    {uf}
+                  </option>
+                ))}
+              </select>
             </div>
+          </div>
+
+          {/* Seletor de Indústria */}
+          <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-2.5 h-10 shadow-2xs">
+            <Building2 className="w-4 h-4 text-purple-600 shrink-0" />
+            <div className="flex flex-col">
+              <span className="text-[9px] uppercase font-bold text-purple-600 tracking-wider leading-none">
+                Filtrar Indústria
+              </span>
+              <select
+                id="select-hierarquia-industria"
+                value={industriaFiltro}
+                onChange={(e) => setIndustriaFiltro(e.target.value)}
+                className="text-xs bg-transparent focus:outline-none font-semibold text-slate-800 cursor-pointer max-w-[150px] truncate"
+              >
+                <option value="todas">Todas Indústrias ({listaIndustrias.length})</option>
+                {listaIndustrias.map((ind) => (
+                  <option key={ind} value={ind}>
+                    {ind}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Botão de Limpar Filtros quando algum estiver ativo */}
+          {temFiltroAtivo && (
+            <button
+              type="button"
+              onClick={limparTodosFiltros}
+              className="inline-flex items-center gap-1.5 h-10 px-3 text-xs text-rose-700 bg-rose-50 hover:bg-rose-100 rounded-lg border border-rose-200 font-semibold transition cursor-pointer shrink-0"
+              title="Limpar todos os filtros da hierarquia"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>Limpar Filtros</span>
+            </button>
           )}
         </div>
 
-        <div className="text-xs text-slate-500 font-medium">
-          Exibindo <strong>{itensParaArvore.length}</strong> de <strong>{items.length}</strong> itens
+        <div className="flex items-center gap-2 text-xs text-slate-500 font-medium shrink-0">
+          <span>
+            Exibindo <strong>{itensParaArvore.length}</strong> de <strong>{items.length}</strong> itens
+          </span>
+          {temFiltroAtivo && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700">
+              Filtro Ativo
+            </span>
+          )}
         </div>
       </div>
+
+      {/* Badges de Filtros Ativos */}
+      {temFiltroAtivo && (
+        <div className="flex flex-wrap items-center gap-2 px-1">
+          <span className="text-xs text-slate-500 font-semibold flex items-center gap-1">
+            <Filter className="w-3 h-3 text-slate-400" /> Filtros aplicados:
+          </span>
+          {coordenadorFiltro !== 'todos' && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-lg font-medium">
+              <UserCheck className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+              <span>Coordenador: <strong>{coordenadorFiltro}</strong></span>
+              <button
+                type="button"
+                onClick={() => handleMudarCoordenadorFiltro('todos')}
+                className="p-0.5 hover:bg-indigo-100 rounded text-indigo-500 hover:text-indigo-800 cursor-pointer"
+                title="Remover filtro de coordenador"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          )}
+          {lojaFiltro !== 'todas' && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-lg font-medium">
+              <Store className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+              <span>Loja: <strong>{lojaFiltro}</strong></span>
+              <button
+                type="button"
+                onClick={() => setLojaFiltro('todas')}
+                className="p-0.5 hover:bg-blue-100 rounded text-blue-500 hover:text-blue-800 cursor-pointer"
+                title="Remover filtro de loja"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          )}
+          {estadoFiltro !== 'todos' && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-lg font-medium">
+              <MapPin className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+              <span>Estado: <strong>{estadoFiltro}</strong></span>
+              <button
+                type="button"
+                onClick={() => handleMudarEstadoFiltro('todos')}
+                className="p-0.5 hover:bg-amber-100 rounded text-amber-600 hover:text-amber-900 cursor-pointer"
+                title="Remover filtro de estado"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          )}
+          {industriaFiltro !== 'todas' && (
+            <span className="inline-flex items-center gap-1.5 text-xs text-purple-700 bg-purple-50 border border-purple-200 px-2.5 py-1 rounded-lg font-medium">
+              <Building2 className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+              <span>Indústria: <strong>{industriaFiltro}</strong></span>
+              <button
+                type="button"
+                onClick={() => setIndustriaFiltro('todas')}
+                className="p-0.5 hover:bg-purple-100 rounded text-purple-500 hover:text-purple-800 cursor-pointer"
+                title="Remover filtro de indústria"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Painel Interativo de Ajuste de Precedência da Hierarquia */}
       {mostrarPainelPrecedencia && (
