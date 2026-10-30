@@ -894,7 +894,7 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
                 </button>
               )}
               <datalist id="lista-codigos-supabase">
-                {sugestoesCodigos.map((item) => (
+                {sugestoesCodigos.slice(0, 1000).map((item) => (
                   <option key={item.codigo} value={item.codigo}>
                     {item.label}
                   </option>
@@ -931,7 +931,7 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
                 className="w-full h-11 sm:h-10 px-3 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium"
               />
               <datalist id="lista-industrias">
-                {sugestoesIndustrias.map((sug) => (
+                {sugestoesIndustrias.slice(0, 500).map((sug) => (
                   <option key={sug} value={sug} />
                 ))}
               </datalist>
@@ -996,7 +996,7 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
                 </button>
               )}
               <datalist id="lista-produtos-sugeridos">
-                {sugestoesProdutosPorIndustria.map((prod) => (
+                {sugestoesProdutosPorIndustria.slice(0, 1000).map((prod) => (
                   <option key={prod} value={prod} />
                 ))}
               </datalist>

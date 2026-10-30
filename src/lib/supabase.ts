@@ -4,6 +4,8 @@ import { ItemValidade, ProdutoCatalogo, SupabaseConfig } from '../types';
 const STORAGE_CONFIG_KEY = 'validade_supabase_config';
 const STORAGE_ITEMS_KEY = 'validade_local_items';
 const STORAGE_CATALOGO_KEY = 'validade_catalogo_local';
+export const STORAGE_LOJAS_KEY = 'validade_lojas_local';
+export const STORAGE_COORDENADORES_KEY = 'validade_coordenadores_local';
 
 // Limpa e normaliza a URL do Supabase para evitar erros de caminho como PGRST125
 export function cleanSupabaseUrl(rawUrl: string): string {
@@ -297,6 +299,145 @@ export function saveLocalCatalogo(produtos: ProdutoCatalogo[]) {
   }
 }
 
+// Helpers de persistência local para Coordenadores
+export function getLocalCoordenadores(): string[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_COORDENADORES_KEY);
+    if (raw !== null) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.map((c) => String(c).trim()).filter(Boolean);
+      }
+    }
+  } catch (e) {
+    console.error('Erro ao ler coordenadores locais:', e);
+  }
+  const defaultCoords = ['Carlos Silva', 'Mariana Santos', 'Roberto Souza', 'Fernanda Lima'];
+  saveLocalCoordenadores(defaultCoords);
+  return defaultCoords;
+}
+
+export function saveLocalCoordenadores(coordenadores: string[]) {
+  try {
+    const limpos = Array.from(new Set(coordenadores.map((c) => String(c).trim()).filter(Boolean)));
+    localStorage.setItem(STORAGE_COORDENADORES_KEY, JSON.stringify(limpos));
+  } catch (e) {
+    console.error('Erro ao salvar coordenadores locais:', e);
+  }
+}
+
+// Helpers de persistência local para Lojas
+export function getLocalLojas(): Array<{ nome: string; estado?: string; coordenador?: string }> {
+  try {
+    const raw = localStorage.getItem(STORAGE_LOJAS_KEY);
+    if (raw !== null) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.map((l) => ({
+          nome: String(l.nome || '').trim(),
+          estado: l.estado ? String(l.estado).trim().toUpperCase() : undefined,
+          coordenador: l.coordenador ? String(l.coordenador).trim() : undefined,
+        })).filter((l) => Boolean(l.nome));
+      }
+    }
+  } catch (e) {
+    console.error('Erro ao ler lojas locais:', e);
+  }
+  return [];
+}
+
+export function saveLocalLojas(lojas: Array<{ nome: string; estado?: string; coordenador?: string }>) {
+  try {
+    const map = new Map<string, { nome: string; estado?: string; coordenador?: string }>();
+    lojas.forEach((l) => {
+      if (l.nome && l.nome.trim()) {
+        map.set(l.nome.trim().toLowerCase(), {
+          nome: l.nome.trim(),
+          estado: l.estado ? l.estado.trim().toUpperCase() : undefined,
+          coordenador: l.coordenador ? l.coordenador.trim() : undefined,
+        });
+      }
+    });
+    localStorage.setItem(STORAGE_LOJAS_KEY, JSON.stringify(Array.from(map.values())));
+  } catch (e) {
+    console.error('Erro ao salvar lojas locais:', e);
+  }
+}
+
+// Atualizar coordenador de uma loja (Persiste local, atualiza itens e Supabase)
+export async function updateLojaCoordenador(
+  lojaNome: string,
+  novoCoordenador: string | null,
+  config?: SupabaseConfig
+): Promise<{ success: boolean; error?: string }> {
+  const nomeTrim = lojaNome.trim();
+  const coordVal = novoCoordenador && novoCoordenador.trim() ? novoCoordenador.trim() : undefined;
+
+  // 1. Atualiza lista de lojas local
+  const lojas = getLocalLojas();
+  const idx = lojas.findIndex((l) => l.nome.trim().toLowerCase() === nomeTrim.toLowerCase());
+  if (idx !== -1) {
+    lojas[idx].coordenador = coordVal;
+  } else {
+    lojas.push({ nome: nomeTrim, coordenador: coordVal });
+  }
+  saveLocalLojas(lojas);
+
+  // 2. Atualiza todos os itens locais que pertencem a essa loja
+  const localItems = getLocalItems();
+  let alterouItens = false;
+  const newItems = localItems.map((it) => {
+    if (it.loja && it.loja.trim().toLowerCase() === nomeTrim.toLowerCase()) {
+      alterouItens = true;
+      return { ...it, coordenador: coordVal };
+    }
+    return it;
+  });
+  if (alterouItens) {
+    saveLocalItems(newItems);
+  }
+
+  // 3. Atualiza no Supabase se configurado
+  if (config && config.isConnected) {
+    const client = getSupabaseClient(config);
+    if (client) {
+      try {
+        await client
+          .from(config.tableName || 'validades')
+          .update({ coordenador: coordVal || null })
+          .ilike('loja', nomeTrim);
+
+        try {
+          await client
+            .from('lojas')
+            .update({ coordenador: coordVal || null })
+            .ilike('nome', nomeTrim);
+        } catch {
+          // Tabela lojas opcional
+        }
+      } catch (err: any) {
+        console.warn('Erro ao sincronizar novo coordenador no Supabase:', err);
+      }
+    }
+  }
+
+  return { success: true };
+}
+
+// Atualização em lote de múltiplas lojas para um coordenador
+export async function batchUpdateLojasCoordenador(
+  lojasNomes: string[],
+  novoCoordenador: string | null,
+  config?: SupabaseConfig
+): Promise<{ success: boolean; count: number }> {
+  let count = 0;
+  for (const loja of lojasNomes) {
+    await updateLojaCoordenador(loja, novoCoordenador, config);
+    count++;
+  }
+  return { success: true, count };
+}
+
 function mergeLocalProdutosIntoCatalogo(
   remoteProdutos: ProdutoCatalogo[],
   industriasSet: Set<string>,
@@ -345,6 +486,51 @@ function mergeLocalProdutosIntoCatalogo(
   return merged;
 }
 
+/**
+ * Consulta registros paginados via PostgREST (.range) para contornar o limite padrão
+ * de 1.000 linhas do servidor Supabase e permitir carregar mais de 2.000, 5.000 ou até 50.000 registros sem cortes.
+ */
+export async function fetchAllRowsWithPagination(
+  client: any,
+  table: string,
+  columns: string = '*',
+  maxLimit: number = 50000,
+  pageSize: number = 1000
+): Promise<{ data: any[]; error: any }> {
+  let allRows: any[] = [];
+  let from = 0;
+  let hasMore = true;
+
+  while (hasMore && allRows.length < maxLimit) {
+    const to = from + pageSize - 1;
+    const { data, error } = await client
+      .from(table)
+      .select(columns)
+      .range(from, to);
+
+    if (error) {
+      if (allRows.length > 0) {
+        return { data: allRows, error: null };
+      }
+      return { data: [], error };
+    }
+
+    if (!data || data.length === 0) {
+      break;
+    }
+
+    allRows = allRows.concat(data);
+
+    if (data.length < pageSize) {
+      break;
+    }
+
+    from += pageSize;
+  }
+
+  return { data: allRows, error: null };
+}
+
 // Operações integradas (Supabase com fallback seguro)
 export async function fetchCatalogoRelacional(config: SupabaseConfig): Promise<{
   industrias: string[];
@@ -370,8 +556,8 @@ export async function fetchCatalogoRelacional(config: SupabaseConfig): Promise<{
       industrias: Array.from(indSet),
       produtosPorIndustria: map,
       produtosDetalhados: localProds,
-      coordenadores: [],
-      lojas: [],
+      coordenadores: getLocalCoordenadores(),
+      lojas: getLocalLojas(),
     };
   }
 
@@ -388,6 +574,10 @@ export async function fetchCatalogoRelacional(config: SupabaseConfig): Promise<{
     }
   } catch (err) {
     // Silencioso se a tabela coordenadores ainda não foi criada
+  }
+
+  if (coordenadoresList.length === 0) {
+    coordenadoresList = getLocalCoordenadores();
   }
 
   let lojasList: Array<{ nome: string; estado?: string; coordenador?: string }> = [];
@@ -411,14 +601,31 @@ export async function fetchCatalogoRelacional(config: SupabaseConfig): Promise<{
     // Silencioso se a tabela lojas ainda não foi criada
   }
 
+  const localLojas = getLocalLojas();
+  if (localLojas.length > 0) {
+    const lojasMap = new Map<string, { nome: string; estado?: string; coordenador?: string }>();
+    lojasList.forEach((l) => lojasMap.set(l.nome.toLowerCase(), l));
+    localLojas.forEach((l) => {
+      if (!lojasMap.has(l.nome.toLowerCase())) {
+        lojasMap.set(l.nome.toLowerCase(), l);
+      } else if (l.coordenador && !lojasMap.get(l.nome.toLowerCase())?.coordenador) {
+        lojasMap.get(l.nome.toLowerCase())!.coordenador = l.coordenador;
+      }
+    });
+    lojasList = Array.from(lojasMap.values());
+  }
+
   const produtosDetalhadosList: ProdutoCatalogo[] = [];
 
   try {
-    // 1. Tenta buscar da view ou tabela relacional produtos + industrias
+    // 1. Tenta buscar da view ou tabela relacional produtos + industrias (paginado sem limite de 1000)
     try {
-      const { data: viewData, error: viewError } = await client
-        .from('view_produtos_por_industria')
-        .select('*');
+      const { data: viewData, error: viewError } = await fetchAllRowsWithPagination(
+        client,
+        'view_produtos_por_industria',
+        '*',
+        50000
+      );
 
       if (!viewError && viewData && viewData.length > 0) {
         const industriasSet = new Set<string>();
@@ -473,10 +680,12 @@ export async function fetchCatalogoRelacional(config: SupabaseConfig): Promise<{
     const candidateIndTables = ['industrias', 'Industrias', 'fabricantes', 'marcas'];
     for (const indTable of candidateIndTables) {
       try {
-        const { data: indData, error: indErr } = await client
-          .from(indTable)
-          .select('*')
-          .limit(2000);
+        const { data: indData, error: indErr } = await fetchAllRowsWithPagination(
+          client,
+          indTable,
+          '*',
+          10000
+        );
         if (!indErr && indData && indData.length > 0) {
           indData.forEach((i: any) => {
             const nomeInd = (i.nome || i.industria || i.fabricante || i.marca || i.Nome || '').trim();
@@ -518,10 +727,12 @@ export async function fetchCatalogoRelacional(config: SupabaseConfig): Promise<{
 
     for (const prodTable of uniqueCandidateProdTables) {
       try {
-        const { data: prodData, error: prodErr } = await client
-          .from(prodTable)
-          .select('*')
-          .limit(5000);
+        const { data: prodData, error: prodErr } = await fetchAllRowsWithPagination(
+          client,
+          prodTable,
+          '*',
+          50000
+        );
 
         if (prodErr) {
           if (configuredProdTable === prodTable) {
@@ -625,13 +836,15 @@ export async function fetchCatalogoRelacional(config: SupabaseConfig): Promise<{
     }
 
     // 3. Fallback adicional: se a tabela "produtos" ainda não tiver registros,
-    // extrai todos os produtos únicos já lançados na tabela principal de validades
+    // extrai todos os produtos únicos já lançados na tabela principal de validades (paginado até 50.000)
     if (produtosDetalhadosList.length === 0) {
       try {
-        const { data: valData } = await client
-          .from(config.tableName || 'validades')
-          .select('codigo, produto, nome, industria, unidade')
-          .limit(1000);
+        const { data: valData } = await fetchAllRowsWithPagination(
+          client,
+          config.tableName || 'validades',
+          'codigo, produto, nome, industria, unidade',
+          50000
+        );
 
         if (valData && valData.length > 0) {
           valData.forEach((v: any) => {
@@ -697,17 +910,15 @@ export async function fetchAllItems(config: SupabaseConfig): Promise<{ items: It
 
   if (client && config.isConnected) {
     try {
-      // Tenta consultar todos os registros da tabela configurada
-      let queryRes = await client
-        .from(config.tableName || 'validades')
-        .select('*');
+      // Tenta consultar todos os registros da tabela configurada de forma paginada (suporta mais de 2.000 e até 50.000 itens)
+      let queryRes = await fetchAllRowsWithPagination(client, config.tableName || 'validades', '*', 50000);
 
       // Se falhou com a tabela configurada e a tabela configurada não era 'produtos', tenta 'validades' ou 'produtos'
       if (queryRes.error && queryRes.error.code === '42P01') {
         const fallbackTables = ['validades', 'produtos', 'Produtos'];
         for (const fbTable of fallbackTables) {
           if (fbTable !== (config.tableName || 'validades')) {
-            const fbRes = await client.from(fbTable).select('*');
+            const fbRes = await fetchAllRowsWithPagination(client, fbTable, '*', 50000);
             if (!fbRes.error && fbRes.data && fbRes.data.length > 0) {
               queryRes = fbRes;
               break;
@@ -1002,44 +1213,58 @@ export async function insertBatchItemsData(
         return row;
       });
 
-      let res = await client
-        .from(config.tableName || 'validades')
-        .insert(recordsToInsert)
-        .select();
+      const CHUNK_SIZE = 150;
+      const allCreatedData: any[] = [];
+      let insertError: any = null;
 
-      if (res.error && res.error.message && res.error.message.includes('codigo')) {
-        const recordsWithoutCodigo = recordsToInsert.map(({ codigo, ...rest }) => rest);
-        res = await client
+      for (let i = 0; i < recordsToInsert.length; i += CHUNK_SIZE) {
+        const chunk = recordsToInsert.slice(i, i + CHUNK_SIZE);
+        let res = await client
           .from(config.tableName || 'validades')
-          .insert(recordsWithoutCodigo)
+          .insert(chunk)
           .select();
+
+        if (res.error && res.error.message && res.error.message.includes('codigo')) {
+          const chunkWithoutCodigo = chunk.map(({ codigo, ...rest }) => rest);
+          res = await client
+            .from(config.tableName || 'validades')
+            .insert(chunkWithoutCodigo)
+            .select();
+        }
+
+        if (res.error) {
+          insertError = res.error;
+          break;
+        }
+
+        if (res.data) {
+          allCreatedData.push(...res.data);
+        }
       }
 
-      const { data, error } = res;
-
-      if (error) {
-        console.warn('Falha no insert lote Supabase, salvando local:', error);
+      if (insertError && allCreatedData.length === 0) {
+        console.warn('Falha no insert lote Supabase, salvando local:', insertError);
         const current = getLocalItems();
         saveLocalItems([...localItems, ...current]);
-        return { items: localItems, fromSupabase: false, error: error.message };
+        return { items: localItems, fromSupabase: false, error: insertError.message };
       }
 
-      const createdItems: ItemValidade[] = (data || []).map((row: any, i: number) => {
+      const createdItems: ItemValidade[] = (allCreatedData.length > 0 ? allCreatedData : localItems).map((row: any, i: number) => {
         const fallbackCod = itemsToAdd[i]?.codigo != null ? String(itemsToAdd[i].codigo).trim() : '';
         const safeRowCod = row.codigo != null && String(row.codigo).trim() ? String(row.codigo).trim() : fallbackCod;
         return {
-          id: String(row.id),
+          id: String(row.id || localItems[i]?.id),
           codigo: safeRowCod,
           industria: String(row.industria || itemsToAdd[i]?.industria || 'Geral'),
           produto: String(row.produto || itemsToAdd[i]?.produto || ''),
-          quantidade: Number(row.quantidade),
-          unidade: row.unidade || 'un',
-          data_vencimento: row.data_vencimento,
-          loja: row.loja || '',
-          estado: row.estado || '',
-          coordenador: row.coordenador || '',
-          lote: row.lote || '',
-          observacoes: row.observacoes || '',
+          quantidade: Number(row.quantidade ?? itemsToAdd[i]?.quantidade ?? 1),
+          unidade: row.unidade || itemsToAdd[i]?.unidade || 'un',
+          data_vencimento: row.data_vencimento || itemsToAdd[i]?.data_vencimento,
+          loja: row.loja || itemsToAdd[i]?.loja || '',
+          estado: row.estado || itemsToAdd[i]?.estado || '',
+          coordenador: row.coordenador || itemsToAdd[i]?.coordenador || '',
+          lote: row.lote || itemsToAdd[i]?.lote || '',
+          observacoes: row.observacoes || itemsToAdd[i]?.observacoes || '',
           created_at: row.created_at || now,
         };
       });
@@ -1585,100 +1810,116 @@ export async function insertBatchProdutosCatalogo(
     let tableToUse = config.productTableName ? cleanTableName(config.productTableName) : 'produtos';
     let schema = await resolveProductTableSchema(client, tableToUse);
 
-    let attempts = 0;
-    let success = false;
+    const CHUNK_SIZE = 150; // Envia em lotes seguros para suportar mais de 2.000, 5.000 e 10.000 produtos
+    const allInsertedRows: any[] = [];
     let lastError: any = null;
-    let resData: any[] = [];
+    let anySuccess = false;
 
-    while (attempts < 8 && !success) {
-      attempts++;
-      const recordsToInsert = localItems.map((it) => buildProductRow(it, schema));
+    for (let chunkIdx = 0; chunkIdx < localItems.length; chunkIdx += CHUNK_SIZE) {
+      const chunk = localItems.slice(chunkIdx, chunkIdx + CHUNK_SIZE);
+      let chunkSuccess = false;
+      let attempts = 0;
+      let chunkResData: any[] = [];
 
-      try {
-        const res = await client.from(tableToUse).insert(recordsToInsert).select();
+      while (attempts < 8 && !chunkSuccess) {
+        attempts++;
+        const recordsToInsert = chunk.map((it) => buildProductRow(it, schema));
 
-        if (!res.error && res.data) {
-          success = true;
-          resData = res.data;
+        try {
+          const res = await client.from(tableToUse).insert(recordsToInsert).select();
+
+          if (!res.error && res.data) {
+            chunkSuccess = true;
+            chunkResData = res.data;
+            anySuccess = true;
+            break;
+          }
+
+          lastError = res.error;
+
+          // 1. Trata violação de restrição NOT NULL (Postgres 23502 - ex: null value in column "industria_nome"...)
+          const notNullCol = extractViolatedNotNullColumn(res.error?.message);
+          if (notNullCol) {
+            let adapted = false;
+            if (notNullCol.includes('ind') || notNullCol.includes('marca') || notNullCol.includes('fabric')) {
+              schema.indCol = notNullCol;
+              schema.missingIndustryColumn = false;
+              adapted = true;
+            } else if (notNullCol.includes('nome') || notNullCol.includes('prod') || notNullCol.includes('desc')) {
+              schema.nameCol = notNullCol;
+              adapted = true;
+            } else if (notNullCol.includes('cod') || notNullCol.includes('ean') || notNullCol.includes('sku')) {
+              schema.codeCol = notNullCol;
+              adapted = true;
+            } else if (notNullCol.includes('un')) {
+              schema.unitCol = notNullCol;
+              adapted = true;
+            }
+            if (adapted) {
+              cachedProductSchemas[tableToUse] = schema;
+              continue; // Tenta novamente com o campo obrigatório NOT NULL preenchido!
+            }
+          }
+
+          // 2. Se for erro de chave única duplicada (Postgres 23505), tenta upsert ignorando duplicatas
+          if (res.error && (res.error.code === '23505' || res.error.message?.includes('duplicate key') || res.error.message?.includes('unique constraint'))) {
+            try {
+              const upsertRes = await client.from(tableToUse).upsert(recordsToInsert, { ignoreDuplicates: true }).select();
+              if (!upsertRes.error && upsertRes.data) {
+                chunkSuccess = true;
+                chunkResData = upsertRes.data;
+                anySuccess = true;
+                break;
+              }
+            } catch {}
+          }
+
+          // 3. Se a tabela não existir, tenta alternativas
+          if (res.error && res.error.code === '42P01') {
+            const fallbackTables = ['catalogo_produtos', 'tb_produtos', 'produtos_base', 'itens'];
+            let foundTable = false;
+            for (const altTable of fallbackTables) {
+              tableToUse = altTable;
+              schema = await resolveProductTableSchema(client, altTable);
+              const altRecords = chunk.map((it) => buildProductRow(it, schema));
+              const altRes = await client.from(altTable).insert(altRecords).select();
+              if (!altRes.error && altRes.data) {
+                chunkSuccess = true;
+                chunkResData = altRes.data;
+                foundTable = true;
+                anySuccess = true;
+                break;
+              }
+            }
+            if (foundTable) break;
+          }
+
+          // 4. Verifica coluna inexistente e adapta o esquema dinamicamente
+          const missingCol = extractMissingColumnFromError(res.error?.message);
+          if (missingCol) {
+            const adapted = adaptSchemaForMissingColumn(schema, missingCol);
+            if (adapted) {
+              cachedProductSchemas[tableToUse] = schema;
+              continue; // Tenta novamente com colunas adaptadas
+            }
+          }
+
+          break;
+        } catch (err: any) {
+          lastError = err;
           break;
         }
+      }
 
-        lastError = res.error;
-
-        // 1. Trata violação de restrição NOT NULL (Postgres 23502 - ex: null value in column "industria_nome"...)
-        const notNullCol = extractViolatedNotNullColumn(res.error?.message);
-        if (notNullCol) {
-          let adapted = false;
-          if (notNullCol.includes('ind') || notNullCol.includes('marca') || notNullCol.includes('fabric')) {
-            schema.indCol = notNullCol;
-            schema.missingIndustryColumn = false;
-            adapted = true;
-          } else if (notNullCol.includes('nome') || notNullCol.includes('prod') || notNullCol.includes('desc')) {
-            schema.nameCol = notNullCol;
-            adapted = true;
-          } else if (notNullCol.includes('cod') || notNullCol.includes('ean') || notNullCol.includes('sku')) {
-            schema.codeCol = notNullCol;
-            adapted = true;
-          } else if (notNullCol.includes('un')) {
-            schema.unitCol = notNullCol;
-            adapted = true;
-          }
-          if (adapted) {
-            cachedProductSchemas[tableToUse] = schema;
-            continue; // Tenta novamente com o campo obrigatório NOT NULL preenchido!
-          }
-        }
-
-        // 2. Se for erro de chave única duplicada (Postgres 23505), tenta upsert ignorando duplicatas
-        if (res.error && (res.error.code === '23505' || res.error.message?.includes('duplicate key') || res.error.message?.includes('unique constraint'))) {
-          try {
-            const upsertRes = await client.from(tableToUse).upsert(recordsToInsert, { ignoreDuplicates: true }).select();
-            if (!upsertRes.error && upsertRes.data) {
-              success = true;
-              resData = upsertRes.data;
-              break;
-            }
-          } catch {}
-        }
-
-        // 3. Se a tabela não existir, tenta alternativas
-        if (res.error && res.error.code === '42P01') {
-          const fallbackTables = ['catalogo_produtos', 'tb_produtos', 'produtos_base', 'itens'];
-          let foundTable = false;
-          for (const altTable of fallbackTables) {
-            tableToUse = altTable;
-            schema = await resolveProductTableSchema(client, altTable);
-            const altRecords = localItems.map((it) => buildProductRow(it, schema));
-            const altRes = await client.from(altTable).insert(altRecords).select();
-            if (!altRes.error && altRes.data) {
-              success = true;
-              resData = altRes.data;
-              foundTable = true;
-              break;
-            }
-          }
-          if (foundTable) break;
-        }
-
-        // 4. Verifica coluna inexistente e adapta o esquema dinamicamente
-        const missingCol = extractMissingColumnFromError(res.error?.message);
-        if (missingCol) {
-          const adapted = adaptSchemaForMissingColumn(schema, missingCol);
-          if (adapted) {
-            cachedProductSchemas[tableToUse] = schema;
-            continue; // Tenta novamente com colunas adaptadas
-          }
-        }
-
-        break;
-      } catch (err: any) {
-        lastError = err;
-        break;
+      if (chunkSuccess) {
+        allInsertedRows.push(...chunkResData);
+      } else {
+        console.warn(`[Supabase] Falha no pacote ${Math.floor(chunkIdx / CHUNK_SIZE) + 1}:`, lastError);
       }
     }
 
-    if (success) {
-      const createdList: ProdutoCatalogo[] = resData.map((row: any, i: number) => {
+    if (anySuccess) {
+      const createdList: ProdutoCatalogo[] = allInsertedRows.map((row: any, i: number) => {
         const rawRowCod = row.codigo ?? row.codigo_barras ?? row.ean ?? localItems[i]?.codigo;
         return {
           id: String(row.id || localItems[i]?.id),

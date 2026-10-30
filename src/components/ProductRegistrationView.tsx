@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   PackagePlus,
   Barcode,
@@ -23,6 +23,10 @@ import {
   Copy,
   Check,
   Layers,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
 } from 'lucide-react';
 import { ProdutoCatalogo, SupabaseConfig } from '../types';
 import {
@@ -67,6 +71,7 @@ export const ProductRegistrationView: React.FC<ProductRegistrationViewProps> = (
 
   // Estados de busca e filtros da lista
   const [busca, setBusca] = useState('');
+  const [filtroSku, setFiltroSku] = useState('todos');
   const [filtroIndustria, setFiltroIndustria] = useState('todas');
   const [filtroSync, setFiltroSync] = useState<'todos' | 'sincronizados' | 'pendentes'>('todos');
 
@@ -98,10 +103,52 @@ export const ProductRegistrationView: React.FC<ProductRegistrationViewProps> = (
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [existingIndustries, produtosCatalogo]);
 
+  // Lista de SKUs disponíveis vindos da lista de produtos cadastrados
+  const opcoesSku = useMemo(() => {
+    const map = new Map<string, { codigo: string; nome: string; industria: string; key: string }>();
+    produtosCatalogo.forEach((p) => {
+      if (p.codigo && String(p.codigo).trim()) {
+        const cod = String(p.codigo).trim();
+        if (filtroIndustria === 'todas' || p.industria === filtroIndustria) {
+          if (!map.has(cod)) {
+            map.set(cod, {
+              codigo: cod,
+              nome: p.nome || 'Produto sem nome',
+              industria: p.industria || '',
+              key: `${cod}_${p.nome}`,
+            });
+          }
+        }
+      }
+    });
+    return Array.from(map.values()).sort((a, b) =>
+      a.codigo.localeCompare(b.codigo, undefined, { numeric: true })
+    );
+  }, [produtosCatalogo, filtroIndustria]);
+
+  const handleMudarIndustria = (novaInd: string) => {
+    setFiltroIndustria(novaInd);
+    if (filtroSku !== 'todos' && filtroSku !== '') {
+      const pertence = produtosCatalogo.some(
+        (p) =>
+          p.codigo &&
+          String(p.codigo).trim() === filtroSku &&
+          (novaInd === 'todas' || p.industria === novaInd)
+      );
+      if (!pertence) {
+        setFiltroSku('todos');
+      }
+    }
+  };
+
   // Contagem de pendentes
   const totalPendentes = useMemo(() => {
     return produtosCatalogo.filter((p) => p.syncedToSupabase === false).length;
   }, [produtosCatalogo]);
+
+  // Estados de paginação para suportar mais de 2.000 e até 50.000 produtos com performance fluida
+  const [itensPorPagina, setItensPorPagina] = useState<number>(50);
+  const [paginaAtual, setPaginaAtual] = useState<number>(1);
 
   // Produtos filtrados
   const produtosFiltrados = useMemo(() => {
@@ -115,6 +162,13 @@ export const ProductRegistrationView: React.FC<ProductRegistrationViewProps> = (
       if (filtroSync === 'pendentes' && p.syncedToSupabase !== false) {
         return false;
       }
+      // Filtro dedicado de SKU / Código
+      if (filtroSku && filtroSku !== 'todos' && filtroSku.trim()) {
+        const termoSku = filtroSku.trim().toLowerCase();
+        const matchSku = p.codigo != null ? String(p.codigo).toLowerCase().trim() === termoSku : false;
+        if (!matchSku) return false;
+      }
+      // Filtro de texto geral
       if (busca.trim()) {
         const termo = busca.toLowerCase();
         const matchNome = p.nome.toLowerCase().includes(termo);
@@ -124,7 +178,29 @@ export const ProductRegistrationView: React.FC<ProductRegistrationViewProps> = (
       }
       return true;
     });
-  }, [produtosCatalogo, busca, filtroIndustria, filtroSync]);
+  }, [produtosCatalogo, busca, filtroSku, filtroIndustria, filtroSync]);
+
+  // Reseta para a página 1 ao alterar filtros ou busca
+  useEffect(() => {
+    setPaginaAtual(1);
+  }, [busca, filtroSku, filtroIndustria, filtroSync, itensPorPagina]);
+
+  // Cálculo de páginas
+  const totalPaginas = useMemo(() => {
+    if (itensPorPagina === -1) return 1;
+    return Math.max(1, Math.ceil(produtosFiltrados.length / itensPorPagina));
+  }, [produtosFiltrados.length, itensPorPagina]);
+
+  const paginaValida = useMemo(() => {
+    return Math.min(Math.max(1, paginaAtual), totalPaginas);
+  }, [paginaAtual, totalPaginas]);
+
+  // Itens da página atual
+  const produtosPaginados = useMemo(() => {
+    if (itensPorPagina === -1) return produtosFiltrados;
+    const inicio = (paginaValida - 1) * itensPorPagina;
+    return produtosFiltrados.slice(inicio, inicio + itensPorPagina);
+  }, [produtosFiltrados, paginaValida, itensPorPagina]);
 
   // Submissão do produto individual
   const handleSubmitIndividual = async (e: React.FormEvent) => {
@@ -687,7 +763,7 @@ CREATE POLICY "Acesso total produtos" ON ${productTable}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {produtosLotePreview.map((item, idx) => (
+                        {produtosLotePreview.slice(0, 100).map((item, idx) => (
                           <tr key={idx} className="hover:bg-slate-50">
                             <td className="py-1.5 px-3 font-mono text-slate-600">{item.codigo || '-'}</td>
                             <td className="py-1.5 px-3 font-medium text-slate-800">{item.industria}</td>
@@ -699,6 +775,12 @@ CREATE POLICY "Acesso total produtos" ON ${productTable}
                     </table>
                   </div>
 
+                  {produtosLotePreview.length > 100 && (
+                    <div className="text-[11px] text-slate-500 italic bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
+                      ℹ️ Mostrando os primeiros 100 produtos na prévia rápida. O envio processará <strong>todos os {produtosLotePreview.length} produtos</strong> em lotes automáticos para garantir a gravação completa no Supabase sem erros de limite.
+                    </div>
+                  )}
+
                   <div className="flex items-center justify-end gap-2 pt-2">
                     <button
                       type="button"
@@ -706,8 +788,8 @@ CREATE POLICY "Acesso total produtos" ON ${productTable}
                       disabled={isSubmitting}
                       className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition cursor-pointer disabled:opacity-50"
                     >
-                      <Cloud className="w-4 h-4" />
-                      <span>{isSubmitting ? 'Salvando...' : `Confirmar e Enviar Todos (${produtosLotePreview.length}) para o Supabase`}</span>
+                      <Cloud className={`w-4 h-4 ${isSubmitting ? 'animate-bounce' : ''}`} />
+                      <span>{isSubmitting ? `Gravando ${produtosLotePreview.length} produtos no Supabase...` : `Confirmar e Enviar Todos (${produtosLotePreview.length}) para o Supabase`}</span>
                     </button>
                   </div>
                 </div>
@@ -906,16 +988,55 @@ CREATE POLICY "Acesso total produtos" ON ${productTable}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
-            {/* Campo de Busca */}
-            <div className="sm:col-span-8 relative">
+            {/* Campo de Busca Geral */}
+            <div className="sm:col-span-5 relative">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                placeholder="Filtrar por nome do produto, código de barras ou marca..."
+                placeholder="Filtrar por nome do produto ou marca..."
                 value={busca}
                 onChange={(e) => setBusca(e.target.value)}
-                className="w-full pl-9 pr-3 h-10 text-xs sm:text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
+                className="w-full pl-9 pr-7 h-10 text-xs sm:text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition"
               />
+              {busca && (
+                <button
+                  type="button"
+                  onClick={() => setBusca('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  title="Limpar busca"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            {/* Filtro SKU vindo da Lista de Produtos */}
+            <div className="sm:col-span-3 relative flex items-center bg-white border border-slate-200 rounded-xl px-3 h-10">
+              <Barcode className="w-4 h-4 text-slate-400 shrink-0 mr-1.5" />
+              <select
+                id="select-filtro-sku-cadastro"
+                value={filtroSku}
+                onChange={(e) => setFiltroSku(e.target.value)}
+                className="w-full text-xs sm:text-sm bg-transparent focus:outline-none text-slate-800 font-medium cursor-pointer truncate"
+                title="Filtrar por SKU da lista de produtos cadastrados"
+              >
+                <option value="todos">Todos os SKUs ({opcoesSku.length})</option>
+                {opcoesSku.map((item) => (
+                  <option key={item.key} value={item.codigo}>
+                    {item.codigo} - {item.nome} {item.industria ? `(${item.industria})` : ''}
+                  </option>
+                ))}
+              </select>
+              {filtroSku !== 'todos' && filtroSku !== '' && (
+                <button
+                  type="button"
+                  onClick={() => setFiltroSku('todos')}
+                  className="text-slate-400 hover:text-slate-600 ml-1 cursor-pointer font-bold text-xs"
+                  title="Limpar SKU"
+                >
+                  ✕
+                </button>
+              )}
             </div>
 
             {/* Filtro de Indústria */}
@@ -923,7 +1044,7 @@ CREATE POLICY "Acesso total produtos" ON ${productTable}
               <Building2 className="w-4 h-4 text-slate-400 shrink-0" />
               <select
                 value={filtroIndustria}
-                onChange={(e) => setFiltroIndustria(e.target.value)}
+                onChange={(e) => handleMudarIndustria(e.target.value)}
                 className="w-full text-xs sm:text-sm bg-transparent focus:outline-none text-slate-700 font-medium cursor-pointer"
               >
                 <option value="todas">Todas as Indústrias ({todasIndustrias.length})</option>
@@ -966,7 +1087,7 @@ CREATE POLICY "Acesso total produtos" ON ${productTable}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {produtosFiltrados.map((item, idx) => (
+                {produtosPaginados.map((item, idx) => (
                   <tr key={`${item.nome}-${item.industria}-${idx}`} className="hover:bg-slate-50/80 transition-colors">
                     {/* Código */}
                     <td className="py-3 px-4">
@@ -1064,6 +1185,99 @@ CREATE POLICY "Acesso total produtos" ON ${productTable}
             </table>
           )}
         </div>
+
+        {/* Barra de Paginação para Catálogos Grandes (> 2.000 produtos) */}
+        {produtosFiltrados.length > 0 && (
+          <div className="px-4 py-3 bg-white border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+            <div className="flex flex-wrap items-center gap-3 text-slate-600">
+              <span>
+                Exibindo{' '}
+                <strong>
+                  {itensPorPagina === -1
+                    ? `1 a ${produtosFiltrados.length}`
+                    : `${Math.min((paginaValida - 1) * itensPorPagina + 1, produtosFiltrados.length)} a ${Math.min(
+                        paginaValida * itensPorPagina,
+                        produtosFiltrados.length
+                      )}`}
+                </strong>{' '}
+                de <strong>{produtosFiltrados.length}</strong> produtos filtrados
+                {produtosFiltrados.length !== produtosCatalogo.length && (
+                  <span className="text-slate-400"> (de {produtosCatalogo.length} no total)</span>
+                )}
+              </span>
+
+              {/* Seletor de itens por página */}
+              <div className="flex items-center gap-1.5 pl-2 border-l border-slate-200">
+                <span className="text-slate-500">Por página:</span>
+                <select
+                  value={itensPorPagina}
+                  onChange={(e) => setItensPorPagina(Number(e.target.value))}
+                  className="bg-slate-50 border border-slate-200 rounded-md px-2 py-1 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                >
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value={250}>250</option>
+                  <option value={500}>500</option>
+                  <option value={-1}>Todos ({produtosFiltrados.length})</option>
+                </select>
+              </div>
+            </div>
+
+            {itensPorPagina !== -1 && totalPaginas > 1 && (
+              <div className="flex items-center gap-1">
+                {/* Primeira */}
+                <button
+                  type="button"
+                  onClick={() => setPaginaAtual(1)}
+                  disabled={paginaValida <= 1}
+                  className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition"
+                  title="Primeira Página"
+                >
+                  <ChevronsLeft className="w-4 h-4" />
+                </button>
+
+                {/* Anterior */}
+                <button
+                  type="button"
+                  onClick={() => setPaginaAtual((p) => Math.max(1, p - 1))}
+                  disabled={paginaValida <= 1}
+                  className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition"
+                  title="Página Anterior"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+
+                {/* Info Página */}
+                <div className="px-3 py-1 font-semibold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+                  Página {paginaValida} de {totalPaginas}
+                </div>
+
+                {/* Próxima */}
+                <button
+                  type="button"
+                  onClick={() => setPaginaAtual((p) => Math.min(totalPaginas, p + 1))}
+                  disabled={paginaValida >= totalPaginas}
+                  className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition"
+                  title="Próxima Página"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+
+                {/* Última */}
+                <button
+                  type="button"
+                  onClick={() => setPaginaAtual(totalPaginas)}
+                  disabled={paginaValida >= totalPaginas}
+                  className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition"
+                  title="Última Página"
+                >
+                  <ChevronsRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Rodapé da Tabela */}
         <div className="p-3.5 bg-slate-50 border-t border-slate-100 text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-2">

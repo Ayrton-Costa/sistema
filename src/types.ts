@@ -37,6 +37,18 @@ export interface SupabaseConfig {
 export type FiltroStatus = 'todos' | 'vencidos' | 'critico_7d' | 'atencao_30d' | 'regular';
 
 // Níveis possíveis para organização da hierarquia
-export type NivelHierarquia = 'loja' | 'industria' | 'coordenador' | 'estado';
+export type NivelHierarquia = 'loja' | 'industria' | 'coordenador' | 'estado' | 'produto';
 
-export type ModoVisualizacao = 'hierarquia' | 'tabela' | 'catalogo' | 'cadastro_produtos' | 'logos';
+export type ModoVisualizacao =
+  | 'hierarquia'
+  | 'tabela'
+  | 'catalogo'
+  | 'cadastro_produtos'
+  | 'logos'
+  | 'coordenadores_lojas';
+
+export interface LojaCatalogo {
+  nome: string;
+  estado?: string;
+  coordenador?: string;
+}

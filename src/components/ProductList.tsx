@@ -17,6 +17,7 @@ import {
   Store,
   MapPin,
   UserCheck,
+  Barcode,
 } from 'lucide-react';
 import { ItemValidade, FiltroStatus, ProdutoCatalogo } from '../types';
 import {
@@ -54,6 +55,7 @@ export const ProductList: React.FC<ProductListProps> = ({
   isLoading,
 }) => {
   const [busca, setBusca] = useState('');
+  const [filtroSku, setFiltroSku] = useState<string>('todos');
   const [coordenadorSelecionado, setCoordenadorSelecionado] = useState<string>('todos');
   const [lojaSelecionada, setLojaSelecionada] = useState<string>('todas');
   const [estadoSelecionado, setEstadoSelecionado] = useState<string>('todos');
@@ -179,6 +181,30 @@ export const ProductList: React.FC<ProductListProps> = ({
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [items, catalogoProdutos, industriaSelecionada]);
 
+  // Se a indústria mudou e o SKU selecionado não pertence a ela, reseta o SKU para "todos"
+  const handleMudarIndustria = (novaInd: string) => {
+    setIndustriaSelecionada(novaInd);
+    setProdutoSelecionado('todos');
+    if (filtroSku !== 'todos' && filtroSku !== '') {
+      const skuPertence =
+        catalogoProdutos.some(
+          (p) =>
+            p.codigo &&
+            String(p.codigo).trim() === filtroSku &&
+            (novaInd === 'todas' || p.industria === novaInd)
+        ) ||
+        items.some(
+          (it) =>
+            it.codigo &&
+            String(it.codigo).trim() === filtroSku &&
+            (novaInd === 'todas' || it.industria === novaInd)
+        );
+      if (!skuPertence) {
+        setFiltroSku('todos');
+      }
+    }
+  };
+
   // Lista única de estados cadastrados para filtro (com fallback para UFs padrão do Brasil)
   const estados = useMemo(() => {
     const set = new Set<string>();
@@ -198,8 +224,52 @@ export const ProductList: React.FC<ProductListProps> = ({
     return Array.from(set).sort();
   }, [items, catalogoLojas]);
 
+  // Lista única de SKUs disponíveis vindos da lista de produtos (catálogo) + itens
+  const opcoesSku = useMemo(() => {
+    const map = new Map<string, { codigo: string; nome: string; industria: string; key: string }>();
+
+    // 1. Catálogo mestre de produtos cadastrados
+    catalogoProdutos.forEach((p) => {
+      if (p.codigo && String(p.codigo).trim()) {
+        const cod = String(p.codigo).trim();
+        if (industriaSelecionada === 'todas' || p.industria === industriaSelecionada) {
+          if (!map.has(cod)) {
+            map.set(cod, {
+              codigo: cod,
+              nome: p.nome || 'Produto sem nome',
+              industria: p.industria || '',
+              key: `cat_${cod}_${p.nome}`,
+            });
+          }
+        }
+      }
+    });
+
+    // 2. Complementa com quaisquer outros itens que tenham SKU registrado
+    items.forEach((it) => {
+      if (it.codigo && String(it.codigo).trim()) {
+        const cod = String(it.codigo).trim();
+        if (industriaSelecionada === 'todas' || it.industria === industriaSelecionada) {
+          if (!map.has(cod)) {
+            map.set(cod, {
+              codigo: cod,
+              nome: it.produto || 'Item sem nome',
+              industria: it.industria || '',
+              key: `it_${cod}_${it.produto}`,
+            });
+          }
+        }
+      }
+    });
+
+    return Array.from(map.values()).sort((a, b) =>
+      a.codigo.localeCompare(b.codigo, undefined, { numeric: true })
+    );
+  }, [items, catalogoProdutos, industriaSelecionada]);
+
   const limparTodosFiltros = () => {
     setBusca('');
+    setFiltroSku('todos');
     setCoordenadorSelecionado('todos');
     setLojaSelecionada('todas');
     setEstadoSelecionado('todos');
@@ -210,6 +280,7 @@ export const ProductList: React.FC<ProductListProps> = ({
 
   const temFiltroAtivo =
     Boolean(busca.trim()) ||
+    (Boolean(filtroSku.trim()) && filtroSku !== 'todos') ||
     coordenadorSelecionado !== 'todos' ||
     lojaSelecionada !== 'todas' ||
     estadoSelecionado !== 'todos' ||
@@ -221,6 +292,25 @@ export const ProductList: React.FC<ProductListProps> = ({
   const itensFiltrados = useMemo(() => {
     return items
       .filter((item) => {
+        // Filtro de SKU / Código vindo da lista de produtos
+        if (filtroSku && filtroSku !== 'todos' && filtroSku.trim()) {
+          const termoSku = filtroSku.trim().toLowerCase();
+          const matchCodItem = item.codigo != null && String(item.codigo).trim().toLowerCase() === termoSku;
+          let matchCodCatalogo = false;
+          if (!matchCodItem && item.produto) {
+            matchCodCatalogo = catalogoProdutos.some(
+              (p) =>
+                p.codigo != null &&
+                String(p.codigo).trim().toLowerCase() === termoSku &&
+                p.nome.trim().toLowerCase() === item.produto.trim().toLowerCase() &&
+                (!item.industria || !p.industria || p.industria.trim().toLowerCase() === item.industria.trim().toLowerCase())
+            );
+          }
+          if (!matchCodItem && !matchCodCatalogo) {
+            return false;
+          }
+        }
+
         // Filtro de texto geral
         if (busca.trim()) {
           const termo = busca.toLowerCase();
@@ -293,7 +383,7 @@ export const ProductList: React.FC<ProductListProps> = ({
         }
         return 0;
       });
-  }, [items, busca, industriaSelecionada, produtoSelecionado, lojaSelecionada, estadoSelecionado, coordenadorSelecionado, filtroStatus, ordenacao]);
+  }, [items, busca, filtroSku, industriaSelecionada, produtoSelecionado, lojaSelecionada, estadoSelecionado, coordenadorSelecionado, filtroStatus, ordenacao]);
 
   const handleStartEdit = (item: ItemValidade) => {
     setEditingId(item.id);
@@ -447,10 +537,7 @@ export const ProductList: React.FC<ProductListProps> = ({
                 <select
                   id="select-filtro-industria"
                   value={industriaSelecionada}
-                  onChange={(e) => {
-                    setIndustriaSelecionada(e.target.value);
-                    setProdutoSelecionado('todos');
-                  }}
+                  onChange={(e) => handleMudarIndustria(e.target.value)}
                   className="text-xs bg-transparent focus:outline-none font-semibold text-slate-800 cursor-pointer max-w-[140px] truncate"
                 >
                   <option value="todas">Todas ({industrias.length})</option>
@@ -488,6 +575,40 @@ export const ProductList: React.FC<ProductListProps> = ({
                 </div>
               </div>
             )}
+
+            {/* Filtro SKU vindo da Lista de Produtos */}
+            <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 h-10 shadow-2xs">
+              <Barcode className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+              <div className="flex flex-col">
+                <span className="text-[9px] uppercase font-bold text-slate-500 tracking-wider leading-none">
+                  SKU (Produtos)
+                </span>
+                <select
+                  id="select-filtro-sku"
+                  value={filtroSku}
+                  onChange={(e) => setFiltroSku(e.target.value)}
+                  className="text-xs bg-transparent focus:outline-none font-semibold text-slate-800 cursor-pointer max-w-[160px] truncate"
+                  title="Filtrar por SKU da lista de produtos cadastrados"
+                >
+                  <option value="todos">Todos os SKUs ({opcoesSku.length})</option>
+                  {opcoesSku.map((item) => (
+                    <option key={item.key} value={item.codigo}>
+                      {item.codigo} - {item.nome} {item.industria ? `(${item.industria})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {filtroSku !== 'todos' && filtroSku !== '' && (
+                <button
+                  type="button"
+                  onClick={() => setFiltroSku('todos')}
+                  className="text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                  title="Limpar SKU"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
 
             <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 h-10 shadow-2xs">
               <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
@@ -674,12 +795,26 @@ export const ProductList: React.FC<ProductListProps> = ({
             )}
             {produtoSelecionado !== 'todos' && (
               <span className="inline-flex items-center gap-1 text-xs text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-0.5 rounded-lg font-medium">
-                <Package className="w-3 h-3 text-blue-600 shrink-0" />
+                <Package className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                 <span>Produto: <strong>{produtoSelecionado}</strong></span>
                 <button
                   type="button"
                   onClick={() => setProdutoSelecionado('todos')}
                   className="p-0.5 hover:bg-blue-100 rounded text-blue-500 cursor-pointer"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            {filtroSku.trim() && (
+              <span className="inline-flex items-center gap-1 text-xs text-slate-800 bg-slate-100 border border-slate-300 px-2.5 py-0.5 rounded-lg font-mono font-medium">
+                <Barcode className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+                <span>SKU: <strong>{filtroSku}</strong></span>
+                <button
+                  type="button"
+                  onClick={() => setFiltroSku('')}
+                  className="p-0.5 hover:bg-slate-200 rounded text-slate-500 cursor-pointer"
+                  title="Remover filtro SKU"
                 >
                   <X className="w-3 h-3" />
                 </button>

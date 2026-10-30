@@ -7,6 +7,7 @@ import { HierarchyView } from './components/HierarchyView';
 import { BaseProductsView } from './components/BaseProductsView';
 import { ProductRegistrationView } from './components/ProductRegistrationView';
 import { LogoManagementView } from './components/LogoManagementView';
+import { CoordinatorStoreBindingView } from './components/CoordinatorStoreBindingView';
 import { SupabaseModal } from './components/SupabaseModal';
 import { ImportExcelModal } from './components/ImportExcelModal';
 import { ItemValidade, FiltroStatus, SupabaseConfig, ModoVisualizacao, ProdutoCatalogo } from './types';
@@ -25,9 +26,13 @@ import {
   insertBatchProdutosCatalogo,
   deleteProdutoCatalogo,
   syncAllPendingProdutosToSupabase,
+  updateLojaCoordenador,
+  batchUpdateLojasCoordenador,
+  saveLocalCoordenadores,
+  saveLocalLojas,
 } from './lib/supabase';
 import { exportarParaExcel } from './lib/excel';
-import { AlertCircle, CheckCircle2, Info, X, Table, Network, Database, Sparkles, PackagePlus, FolderOpen, CloudCheck } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Info, X, Table, Network, Database, Sparkles, PackagePlus, FolderOpen, CloudCheck, UserCheck } from 'lucide-react';
 
 export default function App() {
   const [items, setItems] = useState<ItemValidade[]>([]);
@@ -388,6 +393,107 @@ export default function App() {
     }
   };
 
+  // Atualizar coordenador de uma loja (e atualizar todos os itens vinculados a ela)
+  const handleUpdateLojaCoordenador = async (lojaNome: string, novoCoordenador: string | null) => {
+    try {
+      await updateLojaCoordenador(lojaNome, novoCoordenador, supabaseConfig);
+
+      // 1. Atualiza estado de itens na memória
+      setItems((prev) =>
+        prev.map((it) => {
+          if (it.loja && it.loja.trim().toLowerCase() === lojaNome.trim().toLowerCase()) {
+            return { ...it, coordenador: novoCoordenador || undefined };
+          }
+          return it;
+        })
+      );
+
+      // 2. Atualiza catalogoSupabase.lojas
+      setCatalogoSupabase((prev) => {
+        const lojasCopy = [...prev.lojas];
+        const idx = lojasCopy.findIndex((l) => l.nome.trim().toLowerCase() === lojaNome.trim().toLowerCase());
+        if (idx !== -1) {
+          lojasCopy[idx] = { ...lojasCopy[idx], coordenador: novoCoordenador || undefined };
+        } else {
+          lojasCopy.push({ nome: lojaNome.trim(), coordenador: novoCoordenador || undefined });
+        }
+        return { ...prev, lojas: lojasCopy };
+      });
+    } catch (err: any) {
+      console.error('Erro ao atualizar coordenador da loja:', err);
+      throw err;
+    }
+  };
+
+  // Atualizar coordenador de múltiplas lojas em lote
+  const handleBatchUpdateLojasCoordenador = async (lojasNomes: string[], novoCoordenador: string | null) => {
+    try {
+      await batchUpdateLojasCoordenador(lojasNomes, novoCoordenador, supabaseConfig);
+
+      const nomesSet = new Set(lojasNomes.map((n) => n.trim().toLowerCase()));
+
+      setItems((prev) =>
+        prev.map((it) => {
+          if (it.loja && nomesSet.has(it.loja.trim().toLowerCase())) {
+            return { ...it, coordenador: novoCoordenador || undefined };
+          }
+          return it;
+        })
+      );
+
+      setCatalogoSupabase((prev) => {
+        const lojasMap = new Map<string, { nome: string; estado?: string; coordenador?: string }>();
+        prev.lojas.forEach((l) => lojasMap.set(l.nome.trim().toLowerCase(), l));
+        lojasNomes.forEach((nome) => {
+          const k = nome.trim().toLowerCase();
+          const existing = lojasMap.get(k);
+          if (existing) {
+            lojasMap.set(k, { ...existing, coordenador: novoCoordenador || undefined });
+          } else {
+            lojasMap.set(k, { nome: nome.trim(), coordenador: novoCoordenador || undefined });
+          }
+        });
+        return { ...prev, lojas: Array.from(lojasMap.values()) };
+      });
+    } catch (err: any) {
+      console.error('Erro ao transferir lojas em lote:', err);
+      throw err;
+    }
+  };
+
+  // Adicionar novo coordenador
+  const handleAddCoordenador = async (nome: string) => {
+    const nomeTrim = nome.trim();
+    if (!nomeTrim) return;
+    setCatalogoSupabase((prev) => {
+      if (prev.coordenadores.includes(nomeTrim)) return prev;
+      const coords = [...prev.coordenadores, nomeTrim].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+      saveLocalCoordenadores(coords);
+      return { ...prev, coordenadores: coords };
+    });
+  };
+
+  // Adicionar nova loja
+  const handleAddLoja = async (loja: { nome: string; estado?: string; coordenador?: string }) => {
+    const nomeTrim = loja.nome.trim();
+    if (!nomeTrim) return;
+    setCatalogoSupabase((prev) => {
+      const copy = [...prev.lojas];
+      const idx = copy.findIndex((l) => l.nome.trim().toLowerCase() === nomeTrim.toLowerCase());
+      if (idx !== -1) {
+        copy[idx] = { ...copy[idx], ...loja, nome: nomeTrim };
+      } else {
+        copy.push({
+          nome: nomeTrim,
+          estado: loja.estado?.trim().toUpperCase(),
+          coordenador: loja.coordenador?.trim(),
+        });
+      }
+      saveLocalLojas(copy);
+      return { ...prev, lojas: copy };
+    });
+  };
+
   // Exportar Excel
   const handleExportExcel = () => {
     if (items.length === 0) {
@@ -518,7 +624,7 @@ export default function App() {
               }`}
             >
               <Network className="w-4 h-4 text-blue-600 shrink-0" />
-              <span className="truncate">Visão Hierárquica</span>
+              <span className="truncate">Planilha Hierárquica</span>
             </button>
             <button
               id="btn-modo-tabela"
@@ -552,6 +658,24 @@ export default function App() {
               </span>
             </button>
             <button
+              id="btn-modo-coordenadores-lojas"
+              type="button"
+              onClick={() => setModoVisualizacao('coordenadores_lojas')}
+              className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                modoVisualizacao === 'coordenadores_lojas'
+                  ? 'bg-white text-indigo-700 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <UserCheck className="w-4 h-4 text-indigo-600 shrink-0" />
+              <span className="truncate">Coordenadores &amp; Lojas</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                modoVisualizacao === 'coordenadores_lojas' ? 'bg-indigo-100 text-indigo-800' : 'bg-slate-300 text-slate-700'
+              }`}>
+                {catalogoSupabase.lojas?.length || 0}
+              </span>
+            </button>
+            <button
               id="btn-modo-logos"
               type="button"
               onClick={() => setModoVisualizacao('logos')}
@@ -580,13 +704,15 @@ export default function App() {
               <span>Planilha geral para filtragem e extração em Excel</span>
             ) : modoVisualizacao === 'catalogo' ? (
               <span>Catálogo mestre de produtos sincronizados do banco Supabase</span>
+            ) : modoVisualizacao === 'coordenadores_lojas' ? (
+              <span>Ligar e transferir <strong>Lojas para Coordenadores</strong> com caixas de seleção</span>
             ) : (
               <span>Anexar e gerenciar logotipo do sistema e marcas das indústrias no <strong>Google Drive</strong></span>
             )}
           </div>
         </div>
 
-        {/* Exibição Condicional: Cadastrar Produtos, Hierarquia, Tabela Geral, Produtos da Base ou Logos Firebase */}
+        {/* Exibição Condicional: Cadastrar Produtos, Hierarquia, Tabela Geral, Produtos da Base, Coordenadores & Lojas ou Logos Firebase */}
         {modoVisualizacao === 'cadastro_produtos' ? (
           <ProductRegistrationView
             produtosCatalogo={catalogoSupabase.produtosDetalhados || []}
@@ -611,6 +737,7 @@ export default function App() {
             catalogoLojas={catalogoSupabase.lojas}
             catalogoCoordenadores={catalogoSupabase.coordenadores}
             catalogoIndustrias={catalogoSupabase.industrias}
+            catalogoProdutos={catalogoSupabase.produtosDetalhados}
             industryLogos={industryLogos}
             storeLogos={storeLogos}
             coordinatorLogos={coordinatorLogos}
@@ -646,6 +773,21 @@ export default function App() {
             }}
             onOpenSupabaseModal={() => setIsSupabaseModalOpen(true)}
             onNavigateToCadastro={() => setModoVisualizacao('cadastro_produtos')}
+          />
+        ) : modoVisualizacao === 'coordenadores_lojas' ? (
+          <CoordinatorStoreBindingView
+            items={items}
+            catalogoLojas={catalogoSupabase.lojas}
+            catalogoCoordenadores={catalogoSupabase.coordenadores}
+            coordinatorLogos={coordinatorLogos}
+            storeLogos={storeLogos}
+            supabaseConfig={supabaseConfig}
+            onUpdateLojaCoordenador={handleUpdateLojaCoordenador}
+            onBatchUpdateLojasCoordenador={handleBatchUpdateLojasCoordenador}
+            onAddCoordenador={handleAddCoordenador}
+            onAddLoja={handleAddLoja}
+            onRefresh={() => carregarDados(supabaseConfig, true)}
+            isRefreshing={isRefreshing}
           />
         ) : (
           <LogoManagementView
