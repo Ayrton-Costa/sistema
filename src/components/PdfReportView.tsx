@@ -17,6 +17,8 @@ import {
   ChevronDown,
   Sparkles,
   ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
   Download,
   Info,
   Layers,
@@ -24,6 +26,10 @@ import {
   Sliders,
   Check,
   Settings,
+  MessageCircle,
+  Share2,
+  Copy,
+  ExternalLink,
 } from 'lucide-react';
 import { ItemValidade, LojaCatalogo, SupabaseConfig } from '../types';
 import { calcularDiasRestantes, formatarDataBR } from '../lib/excel';
@@ -84,6 +90,36 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
 
   // Modo de exibição do Resumo: Detalhado vs Consolidado por Coordenador vs Consolidado por Indústria
   const [modoResumo, setModoResumo] = useState<'detalhado' | 'por_coordenador' | 'por_industria' | 'por_loja'>('detalhado');
+
+  // Ordenação de colunas da tabela (maior para menor e menor para maior)
+  type ColunaOrdenacao =
+    | 'responsavel'
+    | 'loja'
+    | 'industria'
+    | 'sku'
+    | 'produto'
+    | 'quantidade'
+    | 'vencimento'
+    | 'dias'
+    | 'situacao';
+  type DirecaoOrdenacao = 'asc' | 'desc';
+
+  const [colunaOrdenacao, setColunaOrdenacao] = useState<ColunaOrdenacao>('dias');
+  const [direcaoOrdenacao, setDirecaoOrdenacao] = useState<DirecaoOrdenacao>('asc');
+
+  const alternarOrdenacao = (coluna: ColunaOrdenacao) => {
+    if (colunaOrdenacao === coluna) {
+      setDirecaoOrdenacao((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setColunaOrdenacao(coluna);
+      setDirecaoOrdenacao('asc');
+    }
+  };
+
+  // Estados para Envio do Relatório para o WhatsApp
+  const [mostrarModalWhatsApp, setMostrarModalWhatsApp] = useState<boolean>(false);
+  const [telefoneWhatsApp, setTelefoneWhatsApp] = useState<string>('');
+  const [copiadoFeedback, setCopiadoFeedback] = useState<boolean>(false);
 
   // Critérios de Dias configuráveis pelo usuário para definir cada Status
   // Padrão solicitado: 20 dias para critério de "No Prazo", e crítico até 7 dias (ambos 100% customizáveis)
@@ -337,7 +373,65 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
     });
   }, [items, coordenadorSelecionado, industriaSelecionada, lojaSelecionada, skuSelecionado, statusSelecionados, busca, diasCritico, diasNoPrazo]);
 
-  // 5. Cálculos de Estatísticas e Resumo com os critérios de dias customizados
+  // 6. Ordenação dos Itens filtrados para exibição na tabela e exportação em PDF
+  const itensOrdenados = useMemo(() => {
+    if (!colunaOrdenacao) return itensFiltrados;
+
+    const ordenados = [...itensFiltrados];
+    const fator = direcaoOrdenacao === 'asc' ? 1 : -1;
+
+    ordenados.sort((a, b) => {
+      switch (colunaOrdenacao) {
+        case 'responsavel': {
+          const valA = (a.vendedor || a.coordenador || '').trim().toLowerCase();
+          const valB = (b.vendedor || b.coordenador || '').trim().toLowerCase();
+          return valA.localeCompare(valB, 'pt-BR') * fator;
+        }
+        case 'loja': {
+          const valA = (a.loja || '').trim().toLowerCase();
+          const valB = (b.loja || '').trim().toLowerCase();
+          return valA.localeCompare(valB, 'pt-BR') * fator;
+        }
+        case 'industria': {
+          const valA = (a.industria || '').trim().toLowerCase();
+          const valB = (b.industria || '').trim().toLowerCase();
+          return valA.localeCompare(valB, 'pt-BR') * fator;
+        }
+        case 'sku': {
+          const valA = (a.codigo || '').trim();
+          const valB = (b.codigo || '').trim();
+          return valA.localeCompare(valB, 'pt-BR', { numeric: true }) * fator;
+        }
+        case 'produto': {
+          const valA = (a.produto || '').trim().toLowerCase();
+          const valB = (b.produto || '').trim().toLowerCase();
+          return valA.localeCompare(valB, 'pt-BR') * fator;
+        }
+        case 'quantidade': {
+          const valA = Number(a.quantidade || 0);
+          const valB = Number(b.quantidade || 0);
+          return (valA - valB) * fator;
+        }
+        case 'vencimento': {
+          const valA = new Date(a.data_vencimento).getTime() || 0;
+          const valB = new Date(b.data_vencimento).getTime() || 0;
+          return (valA - valB) * fator;
+        }
+        case 'dias':
+        case 'situacao': {
+          const diasA = calcularDiasRestantes(a.data_vencimento);
+          const diasB = calcularDiasRestantes(b.data_vencimento);
+          return (diasA - diasB) * fator;
+        }
+        default:
+          return 0;
+      }
+    });
+
+    return ordenados;
+  }, [itensFiltrados, colunaOrdenacao, direcaoOrdenacao]);
+
+  // 7. Cálculos de Estatísticas e Resumo com os critérios de dias customizados
   const resumo = useMemo(() => {
     let qtdTotal = 0;
     let vencidos = 0;
@@ -469,14 +563,14 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
     return Array.from(mapa.values()).sort((a, b) => a.industria.localeCompare(b.industria));
   }, [itensFiltrados, diasCritico, diasNoPrazo]);
 
-  // Ação: Baixar Arquivo PDF (.pdf) com os critérios de dias configurados
+  // Ação: Baixar Arquivo PDF (.pdf) com os critérios de dias configurados e ordenação ativa
   const handleBaixarPDF = () => {
-    if (itensFiltrados.length === 0) {
+    if (itensOrdenados.length === 0) {
       alert('Nenhum registro encontrado para gerar o arquivo PDF.');
       return;
     }
 
-    gerarRelatorioPDF(itensFiltrados, {
+    gerarRelatorioPDF(itensOrdenados, {
       coordenadorSelecionado,
       industriaSelecionada,
       lojaSelecionada,
@@ -491,6 +585,101 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
   // Ação: Imprimir / Salvar como PDF via Navegador
   const handleImprimir = () => {
     window.print();
+  };
+
+  // Geração do texto formatado para envio no WhatsApp
+  const gerarTextoWhatsApp = () => {
+    const dataHoje = new Date().toLocaleDateString('pt-BR');
+    const horaHoje = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const coord = coordenadorSelecionado !== 'todos' ? coordenadorSelecionado : 'Todos (Visão Geral)';
+    const ind = industriaSelecionada !== 'todas' ? industriaSelecionada : 'Todas as Indústrias';
+    const loja = lojaSelecionada !== 'todas' ? lojaSelecionada : 'Todas as Lojas';
+    const sku = skuSelecionado !== 'todos' ? skuSelecionado : 'Todos';
+
+    let msg = `📋 *RELATÓRIO DE CONTROLE DE VALIDADE*\n`;
+    msg += `🏢 *${systemBranding?.systemName || 'Controle de Validade de Produtos'}*\n`;
+    msg += `📅 *Emissão:* ${dataHoje} às ${horaHoje}\n\n`;
+
+    msg += `📌 *FILTROS APLICADOS:*\n`;
+    msg += `• Coord./Vendedor: *${coord}*\n`;
+    msg += `• Indústria: *${ind}*\n`;
+    if (lojaSelecionada !== 'todas') msg += `• Loja: *${loja}*\n`;
+    if (skuSelecionado !== 'todos') msg += `• SKU: *${sku}*\n`;
+    msg += `• Critério de Dias: Crítico ≤ ${diasCritico}d | No Prazo ≥ ${diasNoPrazo}d\n\n`;
+
+    msg += `📊 *RESUMO GERAL:*\n`;
+    msg += `• Total de Produtos: *${resumo.totalLinhas} itens* (*${resumo.qtdTotal} unidades*)\n`;
+    msg += `🔴 *Vencidos (≤0d):* ${resumo.vencidos}\n`;
+    msg += `🟠 *Críticos (≤${diasCritico}d):* ${resumo.criticos}\n`;
+    if (resumo.atencao > 0) {
+      msg += `🔵 *Atenção (<${diasNoPrazo}d):* ${resumo.atencao}\n`;
+    }
+    msg += `🟢 *No Prazo (≥${diasNoPrazo}d):* ${resumo.noPrazo}\n\n`;
+
+    // Principais itens críticos ou vencidos (até 10 itens para mensagem ágil e objetiva)
+    const itensPrioritarios = itensOrdenados
+      .filter((it) => {
+        const dias = calcularDiasRestantes(it.data_vencimento);
+        return dias <= diasCritico;
+      })
+      .slice(0, 10);
+
+    if (itensPrioritarios.length > 0) {
+      msg += `🚨 *ITENS EM RISCO PARA AÇÃO IMEDIATA (${itensPrioritarios.length}):*\n`;
+      itensPrioritarios.forEach((it, idx) => {
+        const dias = calcularDiasRestantes(it.data_vencimento);
+        const sit = dias < 0 ? `Vencido há ${Math.abs(dias)}d` : dias === 0 ? 'Vence HOJE' : `Crítico (${dias}d)`;
+        msg += `${idx + 1}. *${it.produto}*\n`;
+        msg += `   └ SKU: ${it.codigo || '-'} | Loja: ${it.loja || 'Loja Principal'}\n`;
+        msg += `   └ Venc: ${formatarDataBR(it.data_vencimento)} (${sit}) | Qtd: *${it.quantidade} ${it.unidade || 'un'}*\n`;
+      });
+
+      const totalCriticosEVencidos = resumo.vencidos + resumo.criticos;
+      if (totalCriticosEVencidos > itensPrioritarios.length) {
+        msg += `\n_...e mais ${totalCriticosEVencidos - itensPrioritarios.length} itens no relatório completo._\n`;
+      }
+    } else if (resumo.totalLinhas > 0) {
+      msg += `✅ *Nenhum item vencido ou crítico neste filtro!*\n`;
+    }
+
+    msg += `\n📲 _Enviado via ${systemBranding?.systemName || 'Controle de Validade'}_`;
+    return msg;
+  };
+
+  const handleEnviarWhatsApp = () => {
+    const texto = gerarTextoWhatsApp();
+    const textoCodificado = encodeURIComponent(texto);
+    const apenasDigitos = telefoneWhatsApp.replace(/\D/g, '');
+
+    let url = '';
+    if (apenasDigitos.length >= 10) {
+      const numeroFinal = apenasDigitos.length <= 11 ? `55${apenasDigitos}` : apenasDigitos;
+      url = `https://wa.me/${numeroFinal}?text=${textoCodificado}`;
+    } else {
+      url = `https://api.whatsapp.com/send?text=${textoCodificado}`;
+    }
+
+    window.open(url, '_blank');
+  };
+
+  const handleCopiarTextoWhatsApp = () => {
+    const texto = gerarTextoWhatsApp();
+    navigator.clipboard.writeText(texto).then(() => {
+      setCopiadoFeedback(true);
+      setTimeout(() => setCopiadoFeedback(false), 2500);
+    });
+  };
+
+  const handleCompartilharWebShare = () => {
+    const texto = gerarTextoWhatsApp();
+    if (navigator.share) {
+      navigator.share({
+        title: `Relatório de Validades - ${systemBranding?.systemName || 'Controle de Validade'}`,
+        text: texto,
+      }).catch(() => {});
+    } else {
+      handleCopiarTextoWhatsApp();
+    }
   };
 
   const totalStatusPossiveis = diasNoPrazo > diasCritico ? 4 : 3;
@@ -534,8 +723,19 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
           </div>
         </div>
 
-        {/* BOTÕES DE GERAÇÃO DE PDF E IMPRESSÃO */}
+        {/* BOTÕES DE GERAÇÃO DE PDF, IMPRESSÃO E WHATSAPP */}
         <div className="flex flex-wrap items-center gap-2">
+          {/* Botão de Enviar no WhatsApp */}
+          <button
+            type="button"
+            onClick={() => setMostrarModalWhatsApp(true)}
+            className="h-9 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+            title="Enviar resumo executivo do relatório para o WhatsApp"
+          >
+            <MessageCircle className="w-4 h-4 fill-white/20" />
+            <span>Enviar no WhatsApp</span>
+          </button>
+
           <button
             type="button"
             onClick={handleBaixarPDF}
@@ -1222,21 +1422,182 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
-                <thead className="bg-slate-800 text-white font-extrabold text-[10px] sm:text-[11px] uppercase tracking-wider">
+                <thead className="bg-slate-800 text-white font-extrabold text-[10px] sm:text-[11px] uppercase tracking-wider select-none">
                   <tr>
-                    <th className="py-2 px-2.5">Vendedor / Coord.</th>
-                    <th className="py-2 px-2.5">Loja / Filial</th>
-                    <th className="py-2 px-2.5">Indústria</th>
-                    <th className="py-2 px-2.5">SKU</th>
-                    <th className="py-2 px-2.5">Descrição do Produto</th>
-                    <th className="py-2 px-2.5 text-center">Qtd</th>
-                    <th className="py-2 px-2.5 text-center">Vencimento</th>
-                    <th className="py-2 px-2.5 text-center">Dias</th>
-                    <th className="py-2 px-2.5 text-center">Situação ({diasNoPrazo}d)</th>
+                    <th
+                      onClick={() => alternarOrdenacao('responsavel')}
+                      className="py-2.5 px-2.5 cursor-pointer hover:bg-slate-700 transition-colors group"
+                      title="Clique para ordenar por Vendedor / Coordenador (A-Z / Z-A)"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span>Vendedor / Coord.</span>
+                        {colunaOrdenacao === 'responsavel' ? (
+                          direcaoOrdenacao === 'asc' ? (
+                            <ArrowUp className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                          ) : (
+                            <ArrowDown className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                          )
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-40 group-hover:opacity-100 shrink-0" />
+                        )}
+                      </div>
+                    </th>
+
+                    <th
+                      onClick={() => alternarOrdenacao('loja')}
+                      className="py-2.5 px-2.5 cursor-pointer hover:bg-slate-700 transition-colors group"
+                      title="Clique para ordenar por Loja / Filial"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span>Loja / Filial</span>
+                        {colunaOrdenacao === 'loja' ? (
+                          direcaoOrdenacao === 'asc' ? (
+                            <ArrowUp className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                          ) : (
+                            <ArrowDown className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                          )
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-40 group-hover:opacity-100 shrink-0" />
+                        )}
+                      </div>
+                    </th>
+
+                    <th
+                      onClick={() => alternarOrdenacao('industria')}
+                      className="py-2.5 px-2.5 cursor-pointer hover:bg-slate-700 transition-colors group"
+                      title="Clique para ordenar por Indústria"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span>Indústria</span>
+                        {colunaOrdenacao === 'industria' ? (
+                          direcaoOrdenacao === 'asc' ? (
+                            <ArrowUp className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                          ) : (
+                            <ArrowDown className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                          )
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-40 group-hover:opacity-100 shrink-0" />
+                        )}
+                      </div>
+                    </th>
+
+                    <th
+                      onClick={() => alternarOrdenacao('sku')}
+                      className="py-2.5 px-2.5 cursor-pointer hover:bg-slate-700 transition-colors group"
+                      title="Clique para ordenar por SKU"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span>SKU</span>
+                        {colunaOrdenacao === 'sku' ? (
+                          direcaoOrdenacao === 'asc' ? (
+                            <ArrowUp className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                          ) : (
+                            <ArrowDown className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                          )
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-40 group-hover:opacity-100 shrink-0" />
+                        )}
+                      </div>
+                    </th>
+
+                    <th
+                      onClick={() => alternarOrdenacao('produto')}
+                      className="py-2.5 px-2.5 cursor-pointer hover:bg-slate-700 transition-colors group"
+                      title="Clique para ordenar por Descrição do Produto"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span>Descrição do Produto</span>
+                        {colunaOrdenacao === 'produto' ? (
+                          direcaoOrdenacao === 'asc' ? (
+                            <ArrowUp className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                          ) : (
+                            <ArrowDown className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                          )
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-40 group-hover:opacity-100 shrink-0" />
+                        )}
+                      </div>
+                    </th>
+
+                    <th
+                      onClick={() => alternarOrdenacao('quantidade')}
+                      className="py-2.5 px-2.5 text-center cursor-pointer hover:bg-slate-700 transition-colors group"
+                      title="Clique para ordenar por Quantidade (Maior para Menor / Menor para Maior)"
+                    >
+                      <div className="flex items-center justify-center gap-1.5">
+                        <span>Qtd</span>
+                        {colunaOrdenacao === 'quantidade' ? (
+                          direcaoOrdenacao === 'asc' ? (
+                            <ArrowUp className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                          ) : (
+                            <ArrowDown className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                          )
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-40 group-hover:opacity-100 shrink-0" />
+                        )}
+                      </div>
+                    </th>
+
+                    <th
+                      onClick={() => alternarOrdenacao('vencimento')}
+                      className="py-2.5 px-2.5 text-center cursor-pointer hover:bg-slate-700 transition-colors group"
+                      title="Clique para ordenar por Data de Vencimento"
+                    >
+                      <div className="flex items-center justify-center gap-1.5">
+                        <span>Vencimento</span>
+                        {colunaOrdenacao === 'vencimento' ? (
+                          direcaoOrdenacao === 'asc' ? (
+                            <ArrowUp className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                          ) : (
+                            <ArrowDown className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                          )
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-40 group-hover:opacity-100 shrink-0" />
+                        )}
+                      </div>
+                    </th>
+
+                    <th
+                      onClick={() => alternarOrdenacao('dias')}
+                      className="py-2.5 px-2.5 text-center cursor-pointer hover:bg-slate-700 transition-colors group"
+                      title="Clique para ordenar por Dias para Vencer (Menor para Maior / Maior para Menor)"
+                    >
+                      <div className="flex items-center justify-center gap-1.5">
+                        <span>Dias</span>
+                        {colunaOrdenacao === 'dias' ? (
+                          direcaoOrdenacao === 'asc' ? (
+                            <ArrowUp className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                          ) : (
+                            <ArrowDown className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                          )
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-40 group-hover:opacity-100 shrink-0" />
+                        )}
+                      </div>
+                    </th>
+
+                    <th
+                      onClick={() => alternarOrdenacao('situacao')}
+                      className="py-2.5 px-2.5 text-center cursor-pointer hover:bg-slate-700 transition-colors group"
+                      title="Clique para ordenar por Situação / Status"
+                    >
+                      <div className="flex items-center justify-center gap-1.5">
+                        <span>Situação ({diasNoPrazo}d)</span>
+                        {colunaOrdenacao === 'situacao' ? (
+                          direcaoOrdenacao === 'asc' ? (
+                            <ArrowUp className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                          ) : (
+                            <ArrowDown className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                          )
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-40 group-hover:opacity-100 shrink-0" />
+                        )}
+                      </div>
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 text-slate-800">
-                  {itensFiltrados.map((it, idx) => {
+                  {itensOrdenados.map((it, idx) => {
                     const statusObj = classificarStatus(it.data_vencimento);
                     const IconeStatus = statusObj.icone;
                     const dias = calcularDiasRestantes(it.data_vencimento);
@@ -1349,6 +1710,122 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
           <span>Emitido via {systemBranding?.systemName || 'Controle de Validade'}</span>
         </div>
       </div>
+
+      {/* MODAL DE ENVIO DO RELATÓRIO PARA WHATSAPP */}
+      {mostrarModalWhatsApp && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto print:hidden">
+          <div className="bg-white rounded-2xl max-w-lg w-full border border-slate-200 shadow-2xl p-5 space-y-4 animate-scale-up">
+            {/* Cabeçalho do Modal */}
+            <div className="flex items-start justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500 text-white flex items-center justify-center shadow-xs">
+                  <MessageCircle className="w-6 h-6 fill-white/20" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                    <span>Enviar Relatório via WhatsApp</span>
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Compartilhe o resumo executivo dos itens filtrados diretamente.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMostrarModalWhatsApp(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Campo Opcional de Telefone */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700 block">
+                Número do WhatsApp <span className="text-slate-400 font-normal">(Opcional)</span>:
+              </label>
+              <div className="relative">
+                <input
+                  type="tel"
+                  value={telefoneWhatsApp}
+                  onChange={(e) => setTelefoneWhatsApp(e.target.value)}
+                  placeholder="Ex: 11 99999-9999 (ou deixe vazio para escolher no app)"
+                  className="w-full text-xs h-9.5 px-3 bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-800 placeholder-slate-400 font-medium"
+                />
+              </div>
+              <p className="text-[11px] text-slate-400">
+                💡 Se deixar em branco, o WhatsApp abrirá com sua lista de conversas e grupos para você escolher o destinatário.
+              </p>
+            </div>
+
+            {/* Prévia da Mensagem */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-700">
+                  Prévia da Mensagem Formatada:
+                </label>
+                <span className="text-[10px] text-slate-400 font-semibold">
+                  {itensOrdenados.length} itens no filtro
+                </span>
+              </div>
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-mono max-h-52 overflow-y-auto whitespace-pre-wrap text-slate-700 select-all leading-relaxed">
+                {gerarTextoWhatsApp()}
+              </div>
+            </div>
+
+            {/* Botões de Ação */}
+            <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCopiarTextoWhatsApp}
+                  className={`h-9 px-3 rounded-xl border text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                    copiadoFeedback
+                      ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                      : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50 shadow-2xs'
+                  }`}
+                  title="Copiar texto da mensagem para a área de transferência"
+                >
+                  {copiadoFeedback ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-slate-500" />}
+                  <span>{copiadoFeedback ? 'Copiado!' : 'Copiar Texto'}</span>
+                </button>
+
+                {typeof navigator !== 'undefined' && 'share' in navigator && (
+                  <button
+                    type="button"
+                    onClick={handleCompartilharWebShare}
+                    className="h-9 px-3 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                    title="Compartilhar via aplicativo do celular"
+                  >
+                    <Share2 className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Compartilhar</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setMostrarModalWhatsApp(false)}
+                  className="h-9 px-3.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-100 text-xs font-bold transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleEnviarWhatsApp}
+                  className="h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <MessageCircle className="w-4 h-4 fill-white/20" />
+                  <span>Abrir no WhatsApp</span>
+                  <ExternalLink className="w-3.5 h-3.5 opacity-80" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
