@@ -8,6 +8,7 @@ import { BaseProductsView } from './components/BaseProductsView';
 import { ProductRegistrationView } from './components/ProductRegistrationView';
 import { LogoManagementView } from './components/LogoManagementView';
 import { CoordinatorStoreBindingView } from './components/CoordinatorStoreBindingView';
+import { PdfReportView } from './components/PdfReportView';
 import { SupabaseModal } from './components/SupabaseModal';
 import { ImportExcelModal } from './components/ImportExcelModal';
 import { ItemValidade, FiltroStatus, SupabaseConfig, ModoVisualizacao, ProdutoCatalogo } from './types';
@@ -32,7 +33,7 @@ import {
   saveLocalLojas,
 } from './lib/supabase';
 import { exportarParaExcel } from './lib/excel';
-import { AlertCircle, CheckCircle2, Info, X, Table, Network, Database, Sparkles, PackagePlus, FolderOpen, CloudCheck, UserCheck } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Info, X, Table, Network, Database, Sparkles, PackagePlus, FolderOpen, CloudCheck, UserCheck, FileText, FileDown } from 'lucide-react';
 
 export default function App() {
   const [items, setItems] = useState<ItemValidade[]>([]);
@@ -515,6 +516,7 @@ export default function App() {
         onOpenImportExcel={() => setIsImportExcelOpen(true)}
         onRefresh={() => carregarDados(supabaseConfig, true)}
         onOpenLogos={() => setModoVisualizacao('logos')}
+        onOpenRelatorioPDF={() => setModoVisualizacao('relatorio_pdf')}
         isRefreshing={isRefreshing}
         totalItems={items.length}
       />
@@ -569,6 +571,7 @@ export default function App() {
           allItems={items}
           isSaving={isSaving}
           prefilledProduct={prefilledProduct}
+          onAbrirVinculoCoordenadores={() => setModoVisualizacao('coordenadores_lojas')}
         />
 
         {/* Alerta de Produtos Encontrados no Supabase quando ainda não há validades lançadas */}
@@ -676,6 +679,24 @@ export default function App() {
               </span>
             </button>
             <button
+              id="btn-modo-relatorio-pdf"
+              type="button"
+              onClick={() => setModoVisualizacao('relatorio_pdf')}
+              className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                modoVisualizacao === 'relatorio_pdf'
+                  ? 'bg-white text-rose-700 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <FileText className="w-4 h-4 text-rose-600 shrink-0" />
+              <span className="truncate">Relatório PDF</span>
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                modoVisualizacao === 'relatorio_pdf' ? 'bg-rose-100 text-rose-800' : 'bg-slate-300 text-slate-700'
+              }`}>
+                PDF
+              </span>
+            </button>
+            <button
               id="btn-modo-logos"
               type="button"
               onClick={() => setModoVisualizacao('logos')}
@@ -706,6 +727,8 @@ export default function App() {
               <span>Catálogo mestre de produtos sincronizados do banco Supabase</span>
             ) : modoVisualizacao === 'coordenadores_lojas' ? (
               <span>Ligar e transferir <strong>Lojas para Coordenadores</strong> com caixas de seleção</span>
+            ) : modoVisualizacao === 'relatorio_pdf' ? (
+              <span>Gerar arquivo PDF e resumo por <strong>Vendedor / Loja / Indústria / SKU / Qtd / Vencimento</strong></span>
             ) : (
               <span>Anexar e gerenciar logotipo do sistema e marcas das indústrias no <strong>Google Drive</strong></span>
             )}
@@ -788,6 +811,15 @@ export default function App() {
             onAddLoja={handleAddLoja}
             onRefresh={() => carregarDados(supabaseConfig, true)}
             isRefreshing={isRefreshing}
+          />
+        ) : modoVisualizacao === 'relatorio_pdf' ? (
+          <PdfReportView
+            items={items}
+            catalogoLojas={catalogoSupabase.lojas}
+            catalogoCoordenadores={catalogoSupabase.coordenadores}
+            catalogoIndustrias={catalogoSupabase.industrias}
+            systemBranding={systemBranding}
+            supabaseConfig={supabaseConfig}
           />
         ) : (
           <LogoManagementView

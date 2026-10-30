@@ -7,6 +7,7 @@ import {
   RefreshCw,
   FolderOpen,
   CloudCheck,
+  FileText,
 } from 'lucide-react';
 import { SupabaseConfig } from '../types';
 
@@ -21,6 +22,7 @@ interface HeaderProps {
   onOpenImportExcel: () => void;
   onRefresh: () => void;
   onOpenLogos?: () => void;
+  onOpenRelatorioPDF?: () => void;
   isRefreshing: boolean;
   totalItems: number;
 }
@@ -33,6 +35,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenImportExcel,
   onRefresh,
   onOpenLogos,
+  onOpenRelatorioPDF,
   isRefreshing,
   totalItems,
 }) => {
@@ -137,6 +140,20 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="hidden sm:inline">Importar</span>
             <span>Excel</span>
           </button>
+
+          {/* Botão Gerar PDF */}
+          {onOpenRelatorioPDF && (
+            <button
+              id="btn-header-pdf"
+              type="button"
+              onClick={onOpenRelatorioPDF}
+              title="Gerar e emitir relatório em arquivo PDF"
+              className="inline-flex items-center gap-1.5 h-9 px-3 bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 text-xs font-bold rounded-lg shadow-2xs transition cursor-pointer"
+            >
+              <FileText className="w-4 h-4 text-rose-600" />
+              <span>Gerar PDF</span>
+            </button>
+          )}
 
           {/* Botão Principal: Extrair em Excel */}
           <button

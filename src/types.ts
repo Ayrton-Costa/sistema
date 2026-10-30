@@ -9,6 +9,7 @@ export interface ItemValidade {
   loja?: string;
   estado?: string;
   coordenador?: string;
+  vendedor?: string;
   lote?: string;
   observacoes?: string;
   created_at?: string;
@@ -45,7 +46,8 @@ export type ModoVisualizacao =
   | 'catalogo'
   | 'cadastro_produtos'
   | 'logos'
-  | 'coordenadores_lojas';
+  | 'coordenadores_lojas'
+  | 'relatorio_pdf';
 
 export interface LojaCatalogo {
   nome: string;

@@ -20,6 +20,7 @@ import {
   Barcode,
   Search,
   RotateCcw,
+  ArrowRight,
 } from 'lucide-react';
 import { ItemValidade, ProdutoCatalogo } from '../types';
 
@@ -46,6 +47,7 @@ interface QuickAddFormProps {
   allItems?: ItemValidade[];
   isSaving: boolean;
   prefilledProduct?: { produto: string; industria: string; codigo?: string; unidade?: string } | null;
+  onAbrirVinculoCoordenadores?: () => void;
 }
 
 const ESTADOS_BRASIL = [
@@ -66,6 +68,7 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
   allItems = [],
   isSaving,
   prefilledProduct,
+  onAbrirVinculoCoordenadores,
 }) => {
   const [codigo, setCodigo] = useState('');
   const [loja, setLoja] = useState('');
@@ -109,188 +112,172 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
     }
   }, [prefilledProduct]);
 
-  // Lista única de coordenadores (Supabase + histórico de itens)
-  const coordenadoresCadastrados = useMemo(() => {
-    const set = new Set<string>();
-    catalogoCoordenadoresSupabase.forEach((c) => {
-      if (c?.trim()) set.add(c.trim());
-    });
+  // 1. Estrutura oficial consolidada de Lojas e Vínculos com Coordenadores da aba "Vínculo de Coordenadores & Lojas"
+  const estruturaVinculoLojas = useMemo(() => {
+    const map = new Map<string, { nome: string; estado?: string; coordenador?: string }>();
+
+    // Prioridade máxima: configurações e vínculos definidos na aba "Vínculo de Coordenadores & Lojas"
     catalogoLojasSupabase.forEach((l) => {
-      if (l.coordenador?.trim()) set.add(l.coordenador.trim());
-    });
-    allItems.forEach((it) => {
-      if (it.coordenador?.trim()) set.add(it.coordenador.trim());
-    });
-
-    // Se a base ainda estiver zerada, disponibiliza coordenadores padrão
-    if (set.size === 0) {
-      ['Carlos Silva', 'Mariana Santos', 'Roberto Souza', 'Fernanda Lima'].forEach((ex) => set.add(ex));
-    }
-
-    return Array.from(set).sort((a, b) => a.localeCompare(b, 'pt-BR'));
-  }, [allItems, catalogoCoordenadoresSupabase, catalogoLojasSupabase]);
-
-  // Lista de lojas cadastradas: filtradas dinamicamente pelo coordenador e estado selecionados
-  const lojasCadastradas = useMemo(() => {
-    const coordTrim = coordenador.trim().toLowerCase();
-    const estTrim = estado.trim().toUpperCase();
-
-    const mapLojas = new Map<string, { nome: string; estado?: string; coordenador?: string }>();
-
-    catalogoLojasSupabase.forEach((l) => {
-      if (l.nome?.trim()) {
-        mapLojas.set(l.nome.trim(), {
-          nome: l.nome.trim(),
-          estado: l.estado?.trim(),
+      if (l.nome && l.nome.trim()) {
+        const nomeTrim = l.nome.trim();
+        map.set(nomeTrim.toLowerCase(), {
+          nome: nomeTrim,
+          estado: l.estado?.trim().toUpperCase(),
           coordenador: l.coordenador?.trim(),
         });
       }
     });
 
+    // Lojas presentes no histórico de itens (preservando o vínculo atribuído no catálogo se houver)
     allItems.forEach((it) => {
-      if (it.loja?.trim()) {
-        const nome = it.loja.trim();
-        const existing = mapLojas.get(nome);
-        mapLojas.set(nome, {
-          nome,
-          estado: it.estado?.trim() || existing?.estado,
-          coordenador: it.coordenador?.trim() || existing?.coordenador,
-        });
+      if (it.loja && it.loja.trim()) {
+        const nomeTrim = it.loja.trim();
+        const key = nomeTrim.toLowerCase();
+        const existing = map.get(key);
+        if (existing) {
+          if (!existing.coordenador && it.coordenador?.trim()) {
+            existing.coordenador = it.coordenador.trim();
+          }
+          if (!existing.estado && it.estado?.trim()) {
+            existing.estado = it.estado.trim().toUpperCase();
+          }
+        } else {
+          map.set(key, {
+            nome: nomeTrim,
+            estado: it.estado?.trim().toUpperCase(),
+            coordenador: it.coordenador?.trim(),
+          });
+        }
       }
     });
 
-    if (mapLojas.size === 0) {
-      [
-        { nome: 'Loja Matriz', estado: 'SP', coordenador: 'Carlos Silva' },
-        { nome: 'Loja Centro', estado: 'RJ', coordenador: 'Mariana Santos' },
-        { nome: 'Loja Zona Sul', estado: 'MG', coordenador: 'Roberto Souza' },
-        { nome: 'Hipermercado 01', estado: 'SP', coordenador: 'Carlos Silva' },
-        { nome: 'Supermercado Modelo', estado: 'BA', coordenador: 'Fernanda Lima' },
-      ].forEach((ex) => mapLojas.set(ex.nome, ex));
+    return Array.from(map.values()).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  }, [catalogoLojasSupabase, allItems]);
+
+  // 2. Estrutura oficial de Coordenadores definidos em "Vínculo de Coordenadores & Lojas"
+  const estruturaCoordenadores = useMemo(() => {
+    const set = new Set<string>();
+    catalogoCoordenadoresSupabase.forEach((c) => {
+      if (c && c.trim()) set.add(c.trim());
+    });
+    catalogoLojasSupabase.forEach((l) => {
+      if (l.coordenador && l.coordenador.trim()) set.add(l.coordenador.trim());
+    });
+    allItems.forEach((it) => {
+      if (it.coordenador && it.coordenador.trim()) set.add(it.coordenador.trim());
+    });
+
+    if (set.size === 0) {
+      ['Carlos Silva', 'Mariana Santos', 'Roberto Souza', 'Fernanda Lima'].forEach((c) => set.add(c));
     }
 
-    const todas = Array.from(mapLojas.values());
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  }, [catalogoCoordenadoresSupabase, catalogoLojasSupabase, allItems]);
 
-    // Se houver coordenador selecionado, prioriza ou filtra as lojas dele
-    let resultado = todas;
-    if (coordTrim) {
-      const lojasDoCoord = todas.filter(
-        (l) => l.coordenador?.trim().toLowerCase() === coordTrim
-      );
-      if (lojasDoCoord.length > 0) {
-        resultado = lojasDoCoord;
+  // 3. Mapa de contagem de lojas vinculadas por coordenador
+  const contagemLojasPorCoordenador = useMemo(() => {
+    const map = new Map<string, number>();
+    estruturaVinculoLojas.forEach((l) => {
+      if (l.coordenador?.trim()) {
+        const k = l.coordenador.trim().toLowerCase();
+        map.set(k, (map.get(k) || 0) + 1);
       }
+    });
+    return map;
+  }, [estruturaVinculoLojas]);
+
+  // 4. Lojas a exibir no formulário: se houver coordenador selecionado, filtra as lojas dele no Vínculo
+  const lojasExibidas = useMemo(() => {
+    const coordTrim = coordenador.trim().toLowerCase();
+    const estTrim = estado.trim().toUpperCase();
+
+    let filtradas = estruturaVinculoLojas;
+    if (coordTrim) {
+      filtradas = filtradas.filter(
+        (l) => (l.coordenador || '').trim().toLowerCase() === coordTrim
+      );
     }
 
-    // Se houver estado selecionado, filtra por ele
     if (estTrim) {
-      const lojasDoEstado = resultado.filter(
+      filtradas = filtradas.filter(
         (l) => (l.estado || '').trim().toUpperCase() === estTrim
       );
-      if (lojasDoEstado.length > 0) {
-        resultado = lojasDoEstado;
-      }
     }
 
-    return resultado.map((l) => l.nome).sort((a, b) => a.localeCompare(b, 'pt-BR'));
-  }, [allItems, catalogoLojasSupabase, coordenador, estado]);
+    return filtradas;
+  }, [estruturaVinculoLojas, coordenador, estado]);
 
-  // Ao selecionar uma loja, preenche automaticamente Estado e Coordenador correspondentes
+  // Informações da loja atualmente selecionada no formulário
+  const lojaAtualInfo = useMemo(() => {
+    if (!loja.trim()) return null;
+    return estruturaVinculoLojas.find(
+      (l) => l.nome.trim().toLowerCase() === loja.trim().toLowerCase()
+    );
+  }, [estruturaVinculoLojas, loja]);
+
+  // Ao selecionar uma loja: busca na estrutura do "Vínculo de Coordenadores & Lojas" e preenche coordenador e estado automaticamente
   const handleMudarLoja = (nomeLoja: string) => {
     setLoja(nomeLoja);
     const trimmed = nomeLoja.trim().toLowerCase();
     if (!trimmed) return;
 
-    // Procura na tabela dedicada de lojas
-    const lojaEncontrada = catalogoLojasSupabase.find(
+    // Busca diretamente na estrutura de Vínculo de Coordenadores & Lojas
+    const lojaEncontrada = estruturaVinculoLojas.find(
       (l) => l.nome.trim().toLowerCase() === trimmed
     );
+
     if (lojaEncontrada) {
-      if (lojaEncontrada.estado) setEstado(lojaEncontrada.estado);
-      if (lojaEncontrada.coordenador) setCoordenador(lojaEncontrada.coordenador);
-      return;
-    }
-
-    // Procura na tabela validades
-    const itemExistente = allItems.find(
-      (it) => it.loja && it.loja.trim().toLowerCase() === trimmed
-    );
-    if (itemExistente) {
-      if (itemExistente.estado) setEstado(itemExistente.estado);
-      if (itemExistente.coordenador) setCoordenador(itemExistente.coordenador);
-      return;
-    }
-
-    // Fallback padrão
-    const fallbackStore = [
-      { nome: 'Loja Matriz', estado: 'SP', coordenador: 'Carlos Silva' },
-      { nome: 'Loja Centro', estado: 'RJ', coordenador: 'Mariana Santos' },
-      { nome: 'Loja Zona Sul', estado: 'MG', coordenador: 'Roberto Souza' },
-      { nome: 'Hipermercado 01', estado: 'SP', coordenador: 'Carlos Silva' },
-      { nome: 'Supermercado Modelo', estado: 'BA', coordenador: 'Fernanda Lima' },
-    ].find((ex) => ex.nome.toLowerCase() === trimmed);
-    if (fallbackStore) {
-      if (fallbackStore.estado) setEstado(fallbackStore.estado);
-      if (fallbackStore.coordenador) setCoordenador(fallbackStore.coordenador);
+      if (lojaEncontrada.estado) {
+        setEstado(lojaEncontrada.estado);
+      }
+      if (lojaEncontrada.coordenador) {
+        setCoordenador(lojaEncontrada.coordenador);
+        setMensagemAlerta(
+          `Loja "${lojaEncontrada.nome}" vinculada ao coordenador "${lojaEncontrada.coordenador}" (definido no Vínculo de Coordenadores).`
+        );
+        setTimeout(() => setMensagemAlerta(''), 4000);
+      } else {
+        setCoordenador('');
+        setMensagemAlerta(
+          `A loja "${lojaEncontrada.nome}" está cadastrada sem coordenador atribuído no Vínculo de Coordenadores.`
+        );
+        setTimeout(() => setMensagemAlerta(''), 4500);
+      }
     }
   };
 
-  // Ao selecionar um coordenador, se a loja atual não pertencer a ele, reseta a loja
+  // Ao selecionar um coordenador: se a loja atual não pertencer a este coordenador no Vínculo, limpa a loja
   const handleMudarCoordenador = (nomeCoord: string) => {
     setCoordenador(nomeCoord);
     const coordTrim = nomeCoord.trim().toLowerCase();
     if (!coordTrim) return;
 
     if (loja) {
-      const lojaPertence =
-        catalogoLojasSupabase.some(
-          (l) =>
-            l.nome.trim().toLowerCase() === loja.trim().toLowerCase() &&
-            l.coordenador?.trim().toLowerCase() === coordTrim
-        ) ||
-        allItems.some(
-          (it) =>
-            it.loja?.trim().toLowerCase() === loja.trim().toLowerCase() &&
-            it.coordenador?.trim().toLowerCase() === coordTrim
-        ) ||
-        [
-          { nome: 'Loja Matriz', coordenador: 'Carlos Silva' },
-          { nome: 'Loja Centro', coordenador: 'Mariana Santos' },
-          { nome: 'Loja Zona Sul', coordenador: 'Roberto Souza' },
-          { nome: 'Hipermercado 01', coordenador: 'Carlos Silva' },
-          { nome: 'Supermercado Modelo', coordenador: 'Fernanda Lima' },
-        ].some(
-          (ex) =>
-            ex.nome.toLowerCase() === loja.trim().toLowerCase() &&
-            ex.coordenador.toLowerCase() === coordTrim
-        );
-
-      if (!lojaPertence) {
+      const lojaAtual = estruturaVinculoLojas.find(
+        (l) => l.nome.trim().toLowerCase() === loja.trim().toLowerCase()
+      );
+      if (!lojaAtual || (lojaAtual.coordenador || '').trim().toLowerCase() !== coordTrim) {
         setLoja('');
+        const total = contagemLojasPorCoordenador.get(coordTrim) || 0;
+        setMensagemAlerta(
+          `Coordenador "${nomeCoord}" selecionado (${total} loja(s) vinculadas no Vínculo). Escolha uma de suas lojas.`
+        );
+        setTimeout(() => setMensagemAlerta(''), 4000);
       }
     }
   };
 
-  // Ao mudar o estado, se a loja atual não pertencer a ele, reseta a loja
+  // Ao mudar o estado (UF):
   const handleMudarEstado = (novoEstado: string) => {
     setEstado(novoEstado);
     const estTrim = novoEstado.trim().toUpperCase();
     if (!estTrim) return;
 
     if (loja) {
-      const lojaNoEstado =
-        catalogoLojasSupabase.some(
-          (l) =>
-            l.nome.trim().toLowerCase() === loja.trim().toLowerCase() &&
-            (l.estado || '').trim().toUpperCase() === estTrim
-        ) ||
-        allItems.some(
-          (it) =>
-            it.loja?.trim().toLowerCase() === loja.trim().toLowerCase() &&
-            (it.estado || '').trim().toUpperCase() === estTrim
-        );
-
-      if (!lojaNoEstado) {
+      const lojaAtual = estruturaVinculoLojas.find(
+        (l) => l.nome.trim().toLowerCase() === loja.trim().toLowerCase()
+      );
+      if (lojaAtual && lojaAtual.estado && lojaAtual.estado.toUpperCase() !== estTrim) {
         setLoja('');
       }
     }
@@ -772,81 +759,154 @@ export const QuickAddForm: React.FC<QuickAddFormProps> = ({
       </div>
 
       <form onSubmit={handleFinalizarEEnviar} className="space-y-3">
-        {/* Linha 1: Dados da Loja, Estado e Coordenador */}
-        <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 p-3 bg-slate-50/80 border border-slate-200/80 rounded-xl">
-          <div className="sm:col-span-5">
-            <label
-              htmlFor="select-loja"
-              className="block text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between"
-            >
-              <div className="flex items-center gap-1">
-                <Store className="w-3.5 h-3.5 text-blue-600" />
-                <span>Nome da Loja</span>
+        {/* Linha 1: Dados da Loja, Estado e Coordenador estritamente integrados ao "Vínculo de Coordenadores & Lojas" */}
+        <div className="p-3 bg-slate-50/80 border border-slate-200/80 rounded-xl space-y-2.5">
+          {/* Barra de Status do Vínculo de Coordenadores & Lojas */}
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-200/60 text-xs">
+            <div className="flex items-center gap-1.5">
+              <div className="p-1 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200">
+                <UserCheck className="w-3.5 h-3.5" />
               </div>
-              <span className="text-[10px] font-normal text-slate-500">Selecione da lista</span>
-            </label>
-            <div className="relative">
-              <select
-                id="select-loja"
-                value={loja}
-                onChange={(e) => handleMudarLoja(e.target.value)}
-                className="w-full h-11 sm:h-10 px-3 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-800 cursor-pointer"
-              >
-                <option value="">Selecione a Loja ({lojasCadastradas.length})...</option>
-                {lojasCadastradas.map((l) => (
-                  <option key={l} value={l}>
-                    {l}
-                  </option>
-                ))}
-              </select>
+              <span className="font-bold text-slate-800 text-[11px] sm:text-xs">
+                Estrutura integrada: Vínculo de Coordenadores &amp; Lojas
+              </span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded-full font-semibold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                {estruturaVinculoLojas.length} {estruturaVinculoLojas.length === 1 ? 'loja' : 'lojas'}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {lojaAtualInfo && (
+                <div className="text-[11px] font-medium flex items-center gap-1">
+                  {lojaAtualInfo.coordenador ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-bold">
+                      <Check className="w-3 h-3 text-emerald-600" />
+                      Vinculado a: {lojaAtualInfo.coordenador}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-bold">
+                      Loja sem coordenador no Vínculo
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {onAbrirVinculoCoordenadores && (
+                <button
+                  type="button"
+                  onClick={onAbrirVinculoCoordenadores}
+                  className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1 cursor-pointer ml-auto"
+                >
+                  <span>Gerenciar Vínculos</span>
+                  <ArrowRight className="w-3 h-3" />
+                </button>
+              )}
             </div>
           </div>
 
-          <div className="sm:col-span-3">
-            <label
-              htmlFor="select-estado"
-              className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1"
-            >
-              <MapPin className="w-3.5 h-3.5 text-slate-500" />
-              <span>Estado (UF)</span>
-            </label>
-            <select
-              id="select-estado"
-              value={estado}
-              onChange={(e) => handleMudarEstado(e.target.value)}
-              className="w-full h-11 sm:h-10 px-3 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-800 cursor-pointer"
-            >
-              <option value="">Selecione...</option>
-              {ESTADOS_BRASIL.map((uf) => (
-                <option key={uf} value={uf}>
-                  {uf}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="sm:col-span-4">
-            <label
-              htmlFor="select-coordenador"
-              className="block text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between"
-            >
-              <div className="flex items-center gap-1">
-                <UserCheck className="w-3.5 h-3.5 text-indigo-600" />
-                <span>Coordenador / Responsável</span>
-              </div>
-              <span className="text-[10px] font-normal text-slate-500">Selecione da lista</span>
-            </label>
-            <div className="relative">
-              <select
-                id="select-coordenador"
-                value={coordenador}
-                onChange={(e) => handleMudarCoordenador(e.target.value)}
-                className="w-full h-11 sm:h-10 px-3 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-slate-800 cursor-pointer"
+          <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+            {/* Campo 1: Coordenador / Responsável (da estrutura do Vínculo) */}
+            <div className="sm:col-span-4">
+              <label
+                htmlFor="select-coordenador"
+                className="block text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between"
               >
-                <option value="">Selecione o Coordenador ({coordenadoresCadastrados.length})...</option>
-                {coordenadoresCadastrados.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
+                <div className="flex items-center gap-1">
+                  <UserCheck className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Coordenador / Responsável</span>
+                </div>
+                <span className="text-[10px] font-normal text-slate-500">
+                  {estruturaCoordenadores.length} no Vínculo
+                </span>
+              </label>
+              <div className="relative">
+                <select
+                  id="select-coordenador"
+                  value={coordenador}
+                  onChange={(e) => handleMudarCoordenador(e.target.value)}
+                  className="w-full h-11 sm:h-10 px-3 text-xs sm:text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-semibold text-slate-800 cursor-pointer"
+                >
+                  <option value="">Todos Coordenadores ({estruturaCoordenadores.length})...</option>
+                  {estruturaCoordenadores.map((c) => {
+                    const qtd = contagemLojasPorCoordenador.get(c.toLowerCase()) || 0;
+                    return (
+                      <option key={c} value={c}>
+                        {c} ({qtd} {qtd === 1 ? 'loja vinculada' : 'lojas vinculadas'})
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            </div>
+
+            {/* Campo 2: Nome da Loja (buscada da estrutura do Vínculo) */}
+            <div className="sm:col-span-5">
+              <label
+                htmlFor="select-loja"
+                className="block text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between"
+              >
+                <div className="flex items-center gap-1">
+                  <Store className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Nome da Loja</span>
+                </div>
+                <span className="text-[10px] font-normal text-slate-500">
+                  {coordenador ? `${lojasExibidas.length} de ${coordenador}` : `${estruturaVinculoLojas.length} no Vínculo`}
+                </span>
+              </label>
+              <div className="relative">
+                <select
+                  id="select-loja"
+                  value={loja}
+                  onChange={(e) => handleMudarLoja(e.target.value)}
+                  className="w-full h-11 sm:h-10 px-3 text-xs sm:text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold text-slate-800 cursor-pointer"
+                >
+                  <option value="">
+                    {coordenador
+                      ? `Selecione a Loja de ${coordenador} (${lojasExibidas.length} lojas)...`
+                      : `Selecione a Loja (${lojasExibidas.length} disponíveis)...`}
+                  </option>
+                  {lojasExibidas.map((l) => (
+                    <option key={l.nome} value={l.nome}>
+                      {l.nome} {l.estado ? `(${l.estado})` : ''} {l.coordenador ? `— Coord: ${l.coordenador}` : '— (Sem Coord.)'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {coordenador && lojasExibidas.length === 0 && (
+                <div className="mt-1 text-[11px] text-amber-700 flex items-center justify-between">
+                  <span>Nenhuma loja vinculada a este coordenador.</span>
+                  {onAbrirVinculoCoordenadores && (
+                    <button
+                      type="button"
+                      onClick={onAbrirVinculoCoordenadores}
+                      className="font-bold underline cursor-pointer text-indigo-700"
+                    >
+                      Vincular agora
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Campo 3: Estado (UF) */}
+            <div className="sm:col-span-3">
+              <label
+                htmlFor="select-estado"
+                className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1"
+              >
+                <MapPin className="w-3.5 h-3.5 text-slate-500" />
+                <span>Estado (UF)</span>
+              </label>
+              <select
+                id="select-estado"
+                value={estado}
+                onChange={(e) => handleMudarEstado(e.target.value)}
+                className="w-full h-11 sm:h-10 px-3 text-xs sm:text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold text-slate-800 cursor-pointer"
+              >
+                <option value="">Todos Estados...</option>
+                {ESTADOS_BRASIL.map((uf) => (
+                  <option key={uf} value={uf}>
+                    {uf}
                   </option>
                 ))}
               </select>
