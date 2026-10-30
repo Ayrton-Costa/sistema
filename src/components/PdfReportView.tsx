@@ -33,7 +33,7 @@ import {
 } from 'lucide-react';
 import { ItemValidade, LojaCatalogo, SupabaseConfig } from '../types';
 import { calcularDiasRestantes, formatarDataBR } from '../lib/excel';
-import { gerarRelatorioPDF } from '../lib/pdfGenerator';
+import { gerarRelatorioPDF, gerarRelatorioPDFFile } from '../lib/pdfGenerator';
 
 interface PdfReportViewProps {
   items: ItemValidade[];
@@ -120,6 +120,7 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
   const [mostrarModalWhatsApp, setMostrarModalWhatsApp] = useState<boolean>(false);
   const [telefoneWhatsApp, setTelefoneWhatsApp] = useState<string>('');
   const [copiadoFeedback, setCopiadoFeedback] = useState<boolean>(false);
+  const [compartilhandoPdf, setCompartilhandoPdf] = useState<boolean>(false);
 
   // Critérios de Dias configuráveis pelo usuário para definir cada Status
   // Padrão solicitado: 20 dias para critério de "No Prazo", e crítico até 7 dias (ambos 100% customizáveis)
@@ -646,6 +647,83 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
     return msg;
   };
 
+  // Ação principal: Compartilhar o arquivo PDF formatado da tabela no WhatsApp
+  const handleCompartilharPdfWhatsApp = async () => {
+    if (itensOrdenados.length === 0) {
+      alert('Nenhum registro encontrado para gerar o arquivo PDF.');
+      return;
+    }
+
+    setCompartilhandoPdf(true);
+    try {
+      const { file, nomeArquivo } = gerarRelatorioPDFFile(itensOrdenados, {
+        coordenadorSelecionado,
+        industriaSelecionada,
+        lojaSelecionada,
+        skuSelecionado,
+        statusSelecionados: Array.from(statusSelecionados),
+        nomeSistema: systemBranding?.systemName || 'Controle de Validade de Produtos',
+        diasCritico,
+        diasNoPrazo,
+      });
+
+      // 1. No celular ou navegadores com suporte a compartilhamento de arquivos nativos:
+      // O arquivo PDF completo é compartilhado e anexado diretamente no WhatsApp!
+      if (
+        typeof navigator !== 'undefined' &&
+        navigator.canShare &&
+        navigator.canShare({ files: [file] })
+      ) {
+        await navigator.share({
+          files: [file],
+          title: `Relatório de Validades - ${nomeArquivo}`,
+          text: `📄 Segue em anexo o Relatório de Controle de Validades em PDF (${resumo.totalLinhas} produtos organizados em tabela).`,
+        });
+        setCompartilhandoPdf(false);
+        return;
+      }
+
+      // 2. No computador / navegadores desktop sem suporte a compartilhamento de arquivo direto via navegador:
+      // Faz o download automático do PDF para a pasta de downloads do usuário
+      gerarRelatorioPDF(itensOrdenados, {
+        coordenadorSelecionado,
+        industriaSelecionada,
+        lojaSelecionada,
+        skuSelecionado,
+        statusSelecionados: Array.from(statusSelecionados),
+        nomeSistema: systemBranding?.systemName || 'Controle de Validade de Produtos',
+        diasCritico,
+        diasNoPrazo,
+      });
+
+      // E abre o WhatsApp com o texto informativo para que o usuário anexe o arquivo baixado
+      const texto = `📄 *RELATÓRIO DE CONTROLE DE VALIDADE EM PDF*\n` +
+        `Arquivo: *${nomeArquivo}*\n` +
+        `📊 *Total:* ${resumo.totalLinhas} produtos (${resumo.qtdTotal} un) | 🔴 Vencidos: ${resumo.vencidos} | 🟠 Críticos: ${resumo.criticos}\n` +
+        `_O arquivo PDF com a tabela organizada linha a linha já foi gerado e baixado no dispositivo. Basta anexá-lo nesta conversa._\n\n` +
+        gerarTextoWhatsApp();
+
+      const textoCodificado = encodeURIComponent(texto);
+      const apenasDigitos = telefoneWhatsApp.replace(/\D/g, '');
+
+      let url = '';
+      if (apenasDigitos.length >= 10) {
+        const numeroFinal = apenasDigitos.length <= 11 ? `55${apenasDigitos}` : apenasDigitos;
+        url = `https://wa.me/${numeroFinal}?text=${textoCodificado}`;
+      } else {
+        url = `https://api.whatsapp.com/send?text=${textoCodificado}`;
+      }
+
+      window.open(url, '_blank');
+    } catch (err: any) {
+      if (err.name !== 'AbortError') {
+        console.error('Erro ao compartilhar PDF:', err);
+      }
+    } finally {
+      setCompartilhandoPdf(false);
+    }
+  };
+
   const handleEnviarWhatsApp = () => {
     const texto = gerarTextoWhatsApp();
     const textoCodificado = encodeURIComponent(texto);
@@ -668,18 +746,6 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
       setCopiadoFeedback(true);
       setTimeout(() => setCopiadoFeedback(false), 2500);
     });
-  };
-
-  const handleCompartilharWebShare = () => {
-    const texto = gerarTextoWhatsApp();
-    if (navigator.share) {
-      navigator.share({
-        title: `Relatório de Validades - ${systemBranding?.systemName || 'Controle de Validade'}`,
-        text: texto,
-      }).catch(() => {});
-    } else {
-      handleCopiarTextoWhatsApp();
-    }
   };
 
   const totalStatusPossiveis = diasNoPrazo > diasCritico ? 4 : 3;
@@ -1711,7 +1777,7 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
         </div>
       </div>
 
-      {/* MODAL DE ENVIO DO RELATÓRIO PARA WHATSAPP */}
+      {/* MODAL DE ENVIO DO RELATÓRIO EM PDF PARA WHATSAPP */}
       {mostrarModalWhatsApp && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto print:hidden">
           <div className="bg-white rounded-2xl max-w-lg w-full border border-slate-200 shadow-2xl p-5 space-y-4 animate-scale-up">
@@ -1723,10 +1789,10 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
                 </div>
                 <div>
                   <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
-                    <span>Enviar Relatório via WhatsApp</span>
+                    <span>Compartilhar PDF no WhatsApp</span>
                   </h3>
                   <p className="text-xs text-slate-500">
-                    Compartilhe o resumo executivo dos itens filtrados diretamente.
+                    Envie o arquivo PDF com a tabela organizada linha a linha diretamente.
                   </p>
                 </div>
               </div>
@@ -1739,8 +1805,36 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
               </button>
             </div>
 
+            {/* Card de Destaque do Arquivo PDF */}
+            <div className="p-3.5 bg-rose-50/70 border-2 border-rose-200 rounded-xl flex items-start gap-3">
+              <div className="p-2.5 bg-rose-600 text-white rounded-xl shadow-xs shrink-0 mt-0.5">
+                <FileText className="w-5 h-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="font-black text-xs text-slate-900">
+                    Relatório_Validade_{coordenadorSelecionado !== 'todos' ? coordenadorSelecionado.replace(/[^a-zA-Z0-9]/g, '_') : 'Geral'}.pdf
+                  </span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded font-bold bg-rose-100 text-rose-800 border border-rose-200">
+                    Tabela PDF A4
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-600 mt-1">
+                  Tabela organizada com <strong>{resumo.totalLinhas} produtos</strong> ({resumo.qtdTotal} un) com colunas de <strong>Vendedor, Loja, Indústria, SKU, Qtd, Vencimento, Dias e Situação</strong>.
+                </p>
+                <div className="mt-2 text-[10.5px] bg-white p-2 rounded-lg border border-rose-200/80 text-slate-700 leading-tight">
+                  <div className="flex items-center gap-1 font-bold text-slate-800 mb-0.5">
+                    <Sparkles className="w-3 h-3 text-amber-500 shrink-0" />
+                    <span>Como o PDF é compartilhado:</span>
+                  </div>
+                  <div>• <strong>No celular:</strong> O arquivo PDF é anexado diretamente na conversa do WhatsApp.</div>
+                  <div>• <strong>No computador:</strong> O PDF é baixado automaticamente e o WhatsApp Web é aberto para você anexar.</div>
+                </div>
+              </div>
+            </div>
+
             {/* Campo Opcional de Telefone */}
-            <div className="space-y-1.5">
+            <div className="space-y-1">
               <label className="text-xs font-bold text-slate-700 block">
                 Número do WhatsApp <span className="text-slate-400 font-normal">(Opcional)</span>:
               </label>
@@ -1750,58 +1844,45 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
                   value={telefoneWhatsApp}
                   onChange={(e) => setTelefoneWhatsApp(e.target.value)}
                   placeholder="Ex: 11 99999-9999 (ou deixe vazio para escolher no app)"
-                  className="w-full text-xs h-9.5 px-3 bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-800 placeholder-slate-400 font-medium"
+                  className="w-full text-xs h-9 px-3 bg-slate-50 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-800 placeholder-slate-400 font-medium"
                 />
               </div>
-              <p className="text-[11px] text-slate-400">
-                💡 Se deixar em branco, o WhatsApp abrirá com sua lista de conversas e grupos para você escolher o destinatário.
+              <p className="text-[10.5px] text-slate-400">
+                💡 Deixe em branco para escolher qualquer contato ou grupo no WhatsApp.
               </p>
             </div>
 
-            {/* Prévia da Mensagem */}
-            <div className="space-y-1.5">
+            {/* Prévia Resumida do Texto que Acompanha */}
+            <div className="space-y-1">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-bold text-slate-700">
-                  Prévia da Mensagem Formatada:
+                  Resumo executivo do relatório:
                 </label>
-                <span className="text-[10px] text-slate-400 font-semibold">
-                  {itensOrdenados.length} itens no filtro
-                </span>
+                <button
+                  type="button"
+                  onClick={handleCopiarTextoWhatsApp}
+                  className="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 flex items-center gap-1 cursor-pointer"
+                >
+                  {copiadoFeedback ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3 text-slate-500" />}
+                  <span>{copiadoFeedback ? 'Copiado!' : 'Copiar Texto'}</span>
+                </button>
               </div>
-              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs font-mono max-h-52 overflow-y-auto whitespace-pre-wrap text-slate-700 select-all leading-relaxed">
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-[11px] font-mono max-h-36 overflow-y-auto whitespace-pre-wrap text-slate-700 select-all leading-relaxed">
                 {gerarTextoWhatsApp()}
               </div>
             </div>
 
             {/* Botões de Ação */}
             <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleCopiarTextoWhatsApp}
-                  className={`h-9 px-3 rounded-xl border text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
-                    copiadoFeedback
-                      ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
-                      : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50 shadow-2xs'
-                  }`}
-                  title="Copiar texto da mensagem para a área de transferência"
-                >
-                  {copiadoFeedback ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-slate-500" />}
-                  <span>{copiadoFeedback ? 'Copiado!' : 'Copiar Texto'}</span>
-                </button>
-
-                {typeof navigator !== 'undefined' && 'share' in navigator && (
-                  <button
-                    type="button"
-                    onClick={handleCompartilharWebShare}
-                    className="h-9 px-3 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shadow-2xs"
-                    title="Compartilhar via aplicativo do celular"
-                  >
-                    <Share2 className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Compartilhar</span>
-                  </button>
-                )}
-              </div>
+              <button
+                type="button"
+                onClick={handleBaixarPDF}
+                className="h-9 px-3 text-xs font-bold rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
+                title="Baixar arquivo PDF localmente"
+              >
+                <FileDown className="w-3.5 h-3.5 text-rose-600" />
+                <span>Baixar Apenas PDF</span>
+              </button>
 
               <div className="flex items-center gap-2">
                 <button
@@ -1814,11 +1895,13 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
 
                 <button
                   type="button"
-                  onClick={handleEnviarWhatsApp}
-                  className="h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  onClick={handleCompartilharPdfWhatsApp}
+                  disabled={compartilhandoPdf}
+                  className="h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold transition flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
+                  title="Compartilhar arquivo PDF organizado da tabela no WhatsApp"
                 >
                   <MessageCircle className="w-4 h-4 fill-white/20" />
-                  <span>Abrir no WhatsApp</span>
+                  <span>{compartilhandoPdf ? 'Gerando PDF...' : 'Compartilhar PDF no WhatsApp'}</span>
                   <ExternalLink className="w-3.5 h-3.5 opacity-80" />
                 </button>
               </div>

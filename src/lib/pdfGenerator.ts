@@ -16,10 +16,10 @@ export interface OpcoesRelatorioPDF {
   diasNoPrazo?: number;
 }
 
-export function gerarRelatorioPDF(
+export function criarRelatorioPDFDoc(
   items: ItemValidade[],
   opcoes: OpcoesRelatorioPDF = {}
-): void {
+): { doc: jsPDF; nomeArquivo: string } {
   const doc = new jsPDF({
     orientation: 'landscape',
     unit: 'mm',
@@ -327,5 +327,23 @@ export function gerarRelatorioPDF(
   const dataArquivo = now.toISOString().split('T')[0];
   const nomeArquivo = `Relatorio_Validade_${sufixoNome}_${dataArquivo}.pdf`;
 
+  return { doc, nomeArquivo };
+}
+
+export function gerarRelatorioPDF(
+  items: ItemValidade[],
+  opcoes: OpcoesRelatorioPDF = {}
+): void {
+  const { doc, nomeArquivo } = criarRelatorioPDFDoc(items, opcoes);
   doc.save(nomeArquivo);
+}
+
+export function gerarRelatorioPDFFile(
+  items: ItemValidade[],
+  opcoes: OpcoesRelatorioPDF = {}
+): { file: File; blob: Blob; nomeArquivo: string } {
+  const { doc, nomeArquivo } = criarRelatorioPDFDoc(items, opcoes);
+  const blob = doc.output('blob');
+  const file = new File([blob], nomeArquivo, { type: 'application/pdf' });
+  return { file, blob, nomeArquivo };
 }
