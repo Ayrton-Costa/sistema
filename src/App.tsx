@@ -818,6 +818,8 @@ export default function App() {
             catalogoLojas={catalogoSupabase.lojas}
             catalogoCoordenadores={catalogoSupabase.coordenadores}
             catalogoIndustrias={catalogoSupabase.industrias}
+            catalogoProdutos={catalogoSupabase.produtosDetalhados}
+            produtosPorIndustria={catalogoSupabase.produtosPorIndustria}
             systemBranding={systemBranding}
             supabaseConfig={supabaseConfig}
           />

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   FileText,
   FileDown,
@@ -6,6 +6,7 @@ import {
   Users,
   Building2,
   Store,
+  Package,
   Barcode,
   Calendar,
   Clock,
@@ -31,7 +32,7 @@ import {
   Copy,
   ExternalLink,
 } from 'lucide-react';
-import { ItemValidade, LojaCatalogo, SupabaseConfig } from '../types';
+import { ItemValidade, LojaCatalogo, SupabaseConfig, ProdutoCatalogo } from '../types';
 import { calcularDiasRestantes, formatarDataBR } from '../lib/excel';
 import { gerarRelatorioPDF, gerarRelatorioPDFFile } from '../lib/pdfGenerator';
 
@@ -40,6 +41,8 @@ interface PdfReportViewProps {
   catalogoLojas?: LojaCatalogo[];
   catalogoCoordenadores?: string[];
   catalogoIndustrias?: string[];
+  catalogoProdutos?: ProdutoCatalogo[];
+  produtosPorIndustria?: Record<string, string[]>;
   systemBranding?: { systemName: string; logoUrl?: string } | null;
   supabaseConfig: SupabaseConfig;
 }
@@ -49,13 +52,21 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
   catalogoLojas = [],
   catalogoCoordenadores = [],
   catalogoIndustrias = [],
+  catalogoProdutos = [],
+  produtosPorIndustria = {},
   systemBranding,
   supabaseConfig,
 }) => {
-  // Filtros de seleção: Coordenador e Indústria (Individual e Geral)
+  // Filtros de seleção: Coordenador, Indústria, Loja, Produtos (Caixas de seleção na lista suspensa) e SKU
   const [coordenadorSelecionado, setCoordenadorSelecionado] = useState<string>('todos');
   const [industriaSelecionada, setIndustriaSelecionada] = useState<string>('todas');
   const [lojaSelecionada, setLojaSelecionada] = useState<string>('todas');
+  const [produtosSelecionados, setProdutosSelecionados] = useState<Set<string>>(
+    () => new Set<string>()
+  );
+  const [dropdownProdutosAberto, setDropdownProdutosAberto] = useState<boolean>(false);
+  const [buscaProdutoFiltro, setBuscaProdutoFiltro] = useState<string>('');
+  const dropdownProdutosRef = useRef<HTMLDivElement>(null);
   const [skuSelecionado, setSkuSelecionado] = useState<string>('todos');
   // Caixas de seleção para múltiplo status (Vencidos, Críticos, Atenção, No Prazo)
   const [statusSelecionados, setStatusSelecionados] = useState<Set<string>>(
@@ -285,20 +296,218 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
     }
   };
 
-  // 4. Lista única de SKUs com código e descrição para filtro
+  // 4. Lista de Produtos: quando a indústria é selecionada, exibe SOMENTE os produtos vinculados a ela!
+  const listaProdutos = useMemo(() => {
+    const mapa = new Map<string, { nome: string; count: number }>();
+    const indTrim = industriaSelecionada.trim().toLowerCase();
+
+    // 1. Produtos presentes nos itens de validade
+    items.forEach((it) => {
+      const prodNome = (it.produto || '').trim();
+      if (!prodNome) return;
+
+      if (industriaSelecionada !== 'todas') {
+        const itInd = (it.industria || '').trim().toLowerCase();
+        if (itInd !== indTrim) return;
+      }
+
+      const key = prodNome.toLowerCase();
+      const curr = mapa.get(key) || { nome: prodNome, count: 0 };
+      curr.count += 1;
+      mapa.set(key, curr);
+    });
+
+    // 2. Produtos do catálogo de base (se fornecido)
+    if (catalogoProdutos && catalogoProdutos.length > 0) {
+      catalogoProdutos.forEach((p) => {
+        const prodNome = (p.nome || '').trim();
+        if (!prodNome) return;
+
+        if (industriaSelecionada !== 'todas') {
+          const pInd = (p.industria || '').trim().toLowerCase();
+          if (pInd !== indTrim) return;
+        }
+
+        const key = prodNome.toLowerCase();
+        if (!mapa.has(key)) {
+          mapa.set(key, { nome: prodNome, count: 0 });
+        }
+      });
+    }
+
+    // 3. Produtos mapeados por indústria do Supabase
+    if (produtosPorIndustria) {
+      if (industriaSelecionada !== 'todas') {
+        const prods = produtosPorIndustria[indTrim] || [];
+        prods.forEach((pName) => {
+          const prodNome = String(pName || '').trim();
+          if (!prodNome) return;
+          const key = prodNome.toLowerCase();
+          if (!mapa.has(key)) {
+            mapa.set(key, { nome: prodNome, count: 0 });
+          }
+        });
+      }
+    }
+
+    return Array.from(mapa.values()).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  }, [items, catalogoProdutos, produtosPorIndustria, industriaSelecionada]);
+
+  // Fecha o dropdown ao clicar fora
+  useEffect(() => {
+    function handleClickFora(event: MouseEvent) {
+      if (
+        dropdownProdutosRef.current &&
+        !dropdownProdutosRef.current.contains(event.target as Node)
+      ) {
+        setDropdownProdutosAberto(false);
+      }
+    }
+    if (dropdownProdutosAberto) {
+      document.addEventListener('mousedown', handleClickFora);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickFora);
+    };
+  }, [dropdownProdutosAberto]);
+
+  // Helpers da lista suspensa de produtos com caixa de seleção
+  const isProdutoMarcado = (nome: string) => {
+    if (produtosSelecionados.size === 0) return true;
+    if (produtosSelecionados.has('__nenhum__')) return false;
+    return produtosSelecionados.has(nome);
+  };
+
+  const alternarProduto = (nome: string) => {
+    setProdutosSelecionados((prev) => {
+      if (prev.size === 0) {
+        // Estavam todos marcados, o usuário desmarca apenas este produto
+        const todosMenosEste = new Set<string>(
+          listaProdutos.map((p) => p.nome).filter((n) => n.toLowerCase() !== nome.toLowerCase())
+        );
+        return todosMenosEste;
+      }
+      if (prev.has('__nenhum__')) {
+        return new Set<string>([nome]);
+      }
+      const next = new Set<string>(prev);
+      if (next.has(nome)) {
+        next.delete(nome);
+        if (next.size === 0) {
+          return new Set<string>(['__nenhum__']);
+        }
+      } else {
+        next.add(nome);
+        if (next.size >= listaProdutos.length && listaProdutos.every((p) => next.has(p.nome))) {
+          return new Set<string>();
+        }
+      }
+      return next;
+    });
+  };
+
+  const selecionarTodosProdutos = () => {
+    setProdutosSelecionados(new Set<string>());
+  };
+
+  const desmarcarTodosProdutos = () => {
+    setProdutosSelecionados(new Set<string>(['__nenhum__']));
+  };
+
+  const temFiltroProdutoAtivo =
+    produtosSelecionados.size > 0 &&
+    !(produtosSelecionados.size >= listaProdutos.length && listaProdutos.every((p) => produtosSelecionados.has(p.nome)));
+
+  const resumoTextoProdutos = useMemo(() => {
+    if (produtosSelecionados.size === 0) {
+      return `Todos (${listaProdutos.length})`;
+    }
+    if (produtosSelecionados.has('__nenhum__')) {
+      return 'Nenhum selecionado';
+    }
+    if (produtosSelecionados.size === 1) {
+      return Array.from(produtosSelecionados)[0];
+    }
+    return `${produtosSelecionados.size} selecionados`;
+  }, [produtosSelecionados, listaProdutos.length]);
+
+  const statusContagemSelecao = useMemo(() => {
+    if (produtosSelecionados.size === 0) {
+      return `${listaProdutos.length} de ${listaProdutos.length} selecionados`;
+    }
+    if (produtosSelecionados.has('__nenhum__')) {
+      return `0 de ${listaProdutos.length} selecionados`;
+    }
+    return `${produtosSelecionados.size} de ${listaProdutos.length} selecionados`;
+  }, [produtosSelecionados, listaProdutos.length]);
+
+  const produtosExibidosNaLista = useMemo(() => {
+    if (!buscaProdutoFiltro.trim()) return listaProdutos;
+    const q = buscaProdutoFiltro.trim().toLowerCase();
+    return listaProdutos.filter((p) => p.nome.toLowerCase().includes(q));
+  }, [listaProdutos, buscaProdutoFiltro]);
+
+  // Ao mudar indústria: se houver seleção de produtos específicos, filtra para manter os da nova indústria
+  const handleMudarIndustria = (novaInd: string) => {
+    setIndustriaSelecionada(novaInd);
+    if (novaInd !== 'todas') {
+      const indTrim = novaInd.trim().toLowerCase();
+      setProdutosSelecionados((prev) => {
+        if (prev.size === 0 || prev.has('__nenhum__')) return prev;
+        const validos = new Set<string>();
+        prev.forEach((nomeProd) => {
+          const pertence =
+            items.some(
+              (it) =>
+                (it.industria || '').trim().toLowerCase() === indTrim &&
+                (it.produto || '').trim().toLowerCase() === nomeProd.trim().toLowerCase()
+            ) ||
+            catalogoProdutos.some(
+              (p) =>
+                (p.industria || '').trim().toLowerCase() === indTrim &&
+                (p.nome || '').trim().toLowerCase() === nomeProd.trim().toLowerCase()
+            ) ||
+            (produtosPorIndustria?.[indTrim] || []).some(
+              (p) => String(p || '').trim().toLowerCase() === nomeProd.trim().toLowerCase()
+            );
+          if (pertence) {
+            validos.add(nomeProd);
+          }
+        });
+        return validos.size > 0 ? validos : new Set<string>();
+      });
+    }
+  };
+
+  // 5. Lista única de SKUs com código e descrição para filtro
   const listaSkus = useMemo(() => {
     const mapa = new Map<string, { codigo: string; produto: string; count: number }>();
+    const indTrim = industriaSelecionada.trim().toLowerCase();
+
     items.forEach((it) => {
       const cod = (it.codigo || '').trim();
       if (!cod) return;
+
+      if (industriaSelecionada !== 'todas') {
+        if ((it.industria || '').trim().toLowerCase() !== indTrim) return;
+      }
+      if (produtosSelecionados.size > 0) {
+        if (produtosSelecionados.has('__nenhum__')) return;
+        const prodNome = (it.produto || '').trim().toLowerCase();
+        const estaMarcado = Array.from(produtosSelecionados).some(
+          (p: string) => p.trim().toLowerCase() === prodNome
+        );
+        if (!estaMarcado) return;
+      }
+
       const curr = mapa.get(cod) || { codigo: cod, produto: it.produto || '', count: 0 };
       curr.count += 1;
       mapa.set(cod, curr);
     });
     return Array.from(mapa.values()).sort((a, b) => a.codigo.localeCompare(b.codigo, 'pt-BR'));
-  }, [items]);
+  }, [items, industriaSelecionada, produtosSelecionados]);
 
-  // Contagem dinâmica por status respeitando os filtros de Coordenador, Indústria, Loja, SKU e Busca
+  // Contagem dinâmica por status respeitando os filtros de Coordenador, Indústria, Loja, Produtos (multi-seleção), SKU e Busca
   const contagemPorStatus = useMemo(() => {
     let vencidos = 0;
     let criticos = 0;
@@ -315,6 +524,14 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
       }
       if (lojaSelecionada !== 'todas') {
         if ((it.loja || '').trim() !== lojaSelecionada) return;
+      }
+      if (produtosSelecionados.size > 0) {
+        if (produtosSelecionados.has('__nenhum__')) return;
+        const prodNome = (it.produto || '').trim().toLowerCase();
+        const estaMarcado = Array.from(produtosSelecionados).some(
+          (p: string) => p.trim().toLowerCase() === prodNome
+        );
+        if (!estaMarcado) return;
       }
       if (skuSelecionado !== 'todos') {
         if ((it.codigo || '').trim() !== skuSelecionado) return;
@@ -333,9 +550,9 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
     });
 
     return { vencidos, criticos, atencao, noPrazo };
-  }, [items, coordenadorSelecionado, industriaSelecionada, lojaSelecionada, skuSelecionado, busca, diasCritico, diasNoPrazo]);
+  }, [items, coordenadorSelecionado, industriaSelecionada, lojaSelecionada, produtosSelecionados, skuSelecionado, busca, diasCritico, diasNoPrazo]);
 
-  // 5. Filtragem dos Itens para o Relatório
+  // 6. Filtragem dos Itens para o Relatório
   const itensFiltrados = useMemo(() => {
     return items.filter((it) => {
       // Filtro de Coordenador / Vendedor
@@ -352,6 +569,16 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
       // Filtro de Loja
       if (lojaSelecionada !== 'todas') {
         if ((it.loja || '').trim() !== lojaSelecionada) return false;
+      }
+
+      // Filtro de Produtos (Caixas de seleção na lista suspensa)
+      if (produtosSelecionados.size > 0) {
+        if (produtosSelecionados.has('__nenhum__')) return false;
+        const prodNome = (it.produto || '').trim().toLowerCase();
+        const estaMarcado = Array.from(produtosSelecionados).some(
+          (p: string) => p.trim().toLowerCase() === prodNome
+        );
+        if (!estaMarcado) return false;
       }
 
       // Filtro de SKU
@@ -372,7 +599,7 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
 
       return true;
     });
-  }, [items, coordenadorSelecionado, industriaSelecionada, lojaSelecionada, skuSelecionado, statusSelecionados, busca, diasCritico, diasNoPrazo]);
+  }, [items, coordenadorSelecionado, industriaSelecionada, lojaSelecionada, produtosSelecionados, skuSelecionado, statusSelecionados, busca, diasCritico, diasNoPrazo]);
 
   // 6. Ordenação dos Itens filtrados para exibição na tabela e exportação em PDF
   const itensOrdenados = useMemo(() => {
@@ -571,10 +798,17 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
       return;
     }
 
+    const prodsArray: string[] | undefined =
+      produtosSelecionados.size > 0 && !produtosSelecionados.has('__nenhum__')
+        ? Array.from(produtosSelecionados)
+        : undefined;
+
     gerarRelatorioPDF(itensOrdenados, {
       coordenadorSelecionado,
       industriaSelecionada,
       lojaSelecionada,
+      produtosSelecionados: prodsArray,
+      produtoSelecionado: prodsArray && prodsArray.length === 1 ? prodsArray[0] : undefined,
       skuSelecionado,
       statusSelecionados: Array.from(statusSelecionados),
       nomeSistema: systemBranding?.systemName || 'Controle de Validade de Produtos',
@@ -604,6 +838,10 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
     msg += `📌 *FILTROS APLICADOS:*\n`;
     msg += `• Coord./Vendedor: *${coord}*\n`;
     msg += `• Indústria: *${ind}*\n`;
+    if (produtosSelecionados.size > 0 && !produtosSelecionados.has('__nenhum__')) {
+      const prodsStr = Array.from(produtosSelecionados).join(', ');
+      msg += `• Produtos (${produtosSelecionados.size}): *${prodsStr.length > 50 ? prodsStr.substring(0, 48) + '...' : prodsStr}*\n`;
+    }
     if (lojaSelecionada !== 'todas') msg += `• Loja: *${loja}*\n`;
     if (skuSelecionado !== 'todos') msg += `• SKU: *${sku}*\n`;
     msg += `• Critério de Dias: Crítico ≤ ${diasCritico}d | No Prazo ≥ ${diasNoPrazo}d\n\n`;
@@ -656,10 +894,17 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
 
     setCompartilhandoPdf(true);
     try {
+      const prodsArray: string[] | undefined =
+        produtosSelecionados.size > 0 && !produtosSelecionados.has('__nenhum__')
+          ? Array.from(produtosSelecionados)
+          : undefined;
+
       const { file, nomeArquivo } = gerarRelatorioPDFFile(itensOrdenados, {
         coordenadorSelecionado,
         industriaSelecionada,
         lojaSelecionada,
+        produtosSelecionados: prodsArray,
+        produtoSelecionado: prodsArray && prodsArray.length === 1 ? prodsArray[0] : undefined,
         skuSelecionado,
         statusSelecionados: Array.from(statusSelecionados),
         nomeSistema: systemBranding?.systemName || 'Controle de Validade de Produtos',
@@ -689,6 +934,8 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
         coordenadorSelecionado,
         industriaSelecionada,
         lojaSelecionada,
+        produtosSelecionados: prodsArray,
+        produtoSelecionado: prodsArray && prodsArray.length === 1 ? prodsArray[0] : undefined,
         skuSelecionado,
         statusSelecionados: Array.from(statusSelecionados),
         nomeSistema: systemBranding?.systemName || 'Controle de Validade de Produtos',
@@ -753,6 +1000,7 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
     coordenadorSelecionado !== 'todos' ||
     industriaSelecionada !== 'todas' ||
     lojaSelecionada !== 'todas' ||
+    temFiltroProdutoAtivo ||
     skuSelecionado !== 'todos' ||
     statusSelecionados.size < totalStatusPossiveis ||
     Boolean(busca.trim());
@@ -761,6 +1009,7 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
     setCoordenadorSelecionado('todos');
     setIndustriaSelecionada('todas');
     setLojaSelecionada('todas');
+    setProdutosSelecionados(new Set());
     setSkuSelecionado('todos');
     setStatusSelecionados(new Set(['vencido', 'critico', 'atencao', 'no_prazo']));
     setBusca('');
@@ -855,7 +1104,7 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
                 <span className="text-[9px] font-bold text-slate-500 uppercase leading-none">Indústria:</span>
                 <select
                   value={industriaSelecionada}
-                  onChange={(e) => setIndustriaSelecionada(e.target.value)}
+                  onChange={(e) => handleMudarIndustria(e.target.value)}
                   className="text-xs bg-transparent focus:outline-none font-bold text-slate-800 cursor-pointer max-w-[160px] truncate"
                 >
                   <option value="todas">Todas (Visão Geral)</option>
@@ -868,7 +1117,163 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
               </div>
             </div>
 
-            {/* 3. SELETOR DE LOJA: QUANDO SELECIONA O COORDENADOR, APARECEM SOMENTE AS SUAS LOJAS */}
+            {/* 3. SELETOR DE PRODUTOS: LISTA SUSPENSA COM CAIXAS DE SELEÇÃO */}
+            <div className="relative" ref={dropdownProdutosRef}>
+              <button
+                type="button"
+                onClick={() => setDropdownProdutosAberto((prev) => !prev)}
+                className={`flex items-center gap-1.5 border rounded-lg px-2.5 h-9 shadow-2xs transition cursor-pointer text-left ${
+                  dropdownProdutosAberto
+                    ? 'bg-amber-50 border-amber-400 ring-2 ring-amber-300/30'
+                    : temFiltroProdutoAtivo
+                    ? 'bg-amber-50/80 border-amber-300 text-amber-950 font-bold'
+                    : 'bg-slate-50 border-slate-200 text-slate-800 hover:bg-slate-100'
+                }`}
+                title="Clique para abrir a lista suspensa com caixas de seleção de produtos"
+              >
+                <Package className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                <div className="flex flex-col min-w-0 pr-1">
+                  <span className="text-[9px] font-bold text-slate-500 uppercase leading-none truncate max-w-[155px]">
+                    {industriaSelecionada !== 'todas' ? `Produtos (${industriaSelecionada}):` : 'Produtos:'}
+                  </span>
+                  <span className="text-xs font-bold text-slate-800 truncate max-w-[155px]">
+                    {resumoTextoProdutos}
+                  </span>
+                </div>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 text-slate-500 shrink-0 transition-transform ${
+                    dropdownProdutosAberto ? 'rotate-180' : ''
+                  }`}
+                />
+              </button>
+
+              {/* PAINEL DA LISTA SUSPENSA COM CAIXAS DE SELEÇÃO */}
+              {dropdownProdutosAberto && (
+                <div className="absolute left-0 mt-1.5 w-72 sm:w-80 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden text-xs">
+                  {/* Cabeçalho do Dropdown */}
+                  <div className="p-2.5 bg-slate-50 border-b border-slate-200 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-slate-800">
+                        <Package className="w-4 h-4 text-amber-600" />
+                        <span>Selecionar Produtos</span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded-full font-bold bg-amber-100 text-amber-900 border border-amber-200">
+                          {listaProdutos.length} disponíveis
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setDropdownProdutosAberto(false)}
+                        className="p-1 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-200 transition cursor-pointer"
+                        title="Fechar lista suspensa"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    {/* Campo de Busca Rápida de Produtos */}
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                      <input
+                        type="text"
+                        value={buscaProdutoFiltro}
+                        onChange={(e) => setBuscaProdutoFiltro(e.target.value)}
+                        placeholder="Buscar produto nesta lista..."
+                        className="w-full pl-8 pr-7 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500 font-medium text-slate-800 placeholder-slate-400"
+                        autoFocus
+                      />
+                      {buscaProdutoFiltro && (
+                        <button
+                          type="button"
+                          onClick={() => setBuscaProdutoFiltro('')}
+                          className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Ações Rápidas: Marcar Todos / Desmarcar Todos */}
+                    <div className="flex items-center justify-between pt-1 text-[11px]">
+                      <button
+                        type="button"
+                        onClick={selecionarTodosProdutos}
+                        className="font-bold text-amber-700 hover:text-amber-900 hover:underline cursor-pointer flex items-center gap-1"
+                      >
+                        <Check className="w-3 h-3" />
+                        <span>Marcar Todos</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={desmarcarTodosProdutos}
+                        className="font-semibold text-slate-500 hover:text-slate-700 hover:underline cursor-pointer"
+                      >
+                        Desmarcar Todos
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Lista com Caixas de Seleção */}
+                  <div className="max-h-60 overflow-y-auto divide-y divide-slate-100 p-1">
+                    {produtosExibidosNaLista.length === 0 ? (
+                      <div className="p-4 text-center text-slate-400 text-xs">
+                        Nenhum produto encontrado {buscaProdutoFiltro ? `para "${buscaProdutoFiltro}"` : ''}.
+                      </div>
+                    ) : (
+                      produtosExibidosNaLista.map((prod) => {
+                        const marcado = isProdutoMarcado(prod.nome);
+                        return (
+                          <label
+                            key={prod.nome}
+                            className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg transition cursor-pointer select-none ${
+                              marcado
+                                ? 'bg-amber-50/70 text-slate-900 font-bold'
+                                : 'hover:bg-slate-50 text-slate-700 font-medium'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <input
+                                type="checkbox"
+                                checked={marcado}
+                                onChange={() => alternarProduto(prod.nome)}
+                                className="w-4 h-4 text-amber-600 rounded focus:ring-amber-500 cursor-pointer accent-amber-600 shrink-0"
+                              />
+                              <span className="truncate text-xs">{prod.nome}</span>
+                            </div>
+                            {prod.count > 0 && (
+                              <span
+                                className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono shrink-0 ${
+                                  marcado
+                                    ? 'bg-amber-200/80 text-amber-900 font-bold'
+                                    : 'bg-slate-100 text-slate-500'
+                                }`}
+                              >
+                                {prod.count} reg.
+                              </span>
+                            )}
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  {/* Rodapé do Dropdown */}
+                  <div className="p-2 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-[11px]">
+                    <span className="text-slate-600 font-medium">
+                      {statusContagemSelecao}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setDropdownProdutosAberto(false)}
+                      className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-md shadow-2xs transition cursor-pointer"
+                    >
+                      Concluir
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 4. SELETOR DE LOJA: QUANDO SELECIONA O COORDENADOR, APARECEM SOMENTE AS SUAS LOJAS */}
             <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2 h-9 shadow-2xs">
               <Store className="w-3.5 h-3.5 text-blue-600 shrink-0" />
               <div className="flex flex-col">
@@ -1253,9 +1658,9 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
           </div>
 
           <div className="text-[11px] text-slate-500">
-            {coordenadorSelecionado !== 'todos' || industriaSelecionada !== 'todas' ? (
+            {coordenadorSelecionado !== 'todos' || industriaSelecionada !== 'todas' || temFiltroProdutoAtivo ? (
               <span className="font-semibold text-indigo-700">
-                Visualizando Resumo Individual ({coordenadorSelecionado !== 'todos' ? coordenadorSelecionado : 'Todos Coord.'} • {industriaSelecionada !== 'todas' ? industriaSelecionada : 'Todas Ind.'})
+                Visualizando Resumo Filtrado ({coordenadorSelecionado !== 'todos' ? coordenadorSelecionado : 'Todos Coord.'} • {industriaSelecionada !== 'todas' ? industriaSelecionada : 'Todas Ind.'}{temFiltroProdutoAtivo ? ` • ${resumoTextoProdutos}` : ''})
               </span>
             ) : (
               <span className="font-semibold text-slate-600">Visualizando Resumo Geral Consolidado</span>
@@ -1318,6 +1723,14 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
               <span>
                 Filtro Indústria: <strong>{industriaSelecionada === 'todas' ? 'Todas (Geral)' : industriaSelecionada}</strong>
               </span>
+              {temFiltroProdutoAtivo && (
+                <>
+                  <span>•</span>
+                  <span>
+                    Produto: <strong>{resumoTextoProdutos}</strong>
+                  </span>
+                </>
+              )}
               {lojaSelecionada !== 'todas' && (
                 <>
                   <span>•</span>

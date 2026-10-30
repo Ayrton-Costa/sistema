@@ -7,6 +7,8 @@ export interface OpcoesRelatorioPDF {
   coordenadorSelecionado?: string;
   industriaSelecionada?: string;
   lojaSelecionada?: string;
+  produtoSelecionado?: string;
+  produtosSelecionados?: string[];
   skuSelecionado?: string;
   statusSelecionados?: string[];
   statusSelecionado?: string;
@@ -43,7 +45,7 @@ export function criarRelatorioPDFDoc(
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
-  doc.text('RELATÓRIO DE CONTROLE DE VALIDADE POR COORDENADOR / VENDEDOR / LOJA / INDÚSTRIA', 14, 16);
+  doc.text('RELATÓRIO DE CONTROLE DE VALIDADE POR COORDENADOR / VENDEDOR / LOJA / INDÚSTRIA / PRODUTO', 14, 16);
 
   doc.setFontSize(8);
   doc.text(`Emissão: ${dataHoraEmissao}`, doc.internal.pageSize.width - 14, 14, { align: 'right' });
@@ -64,38 +66,67 @@ export function criarRelatorioPDFDoc(
     lojaTexto = opcoes.lojaSelecionada;
   }
 
+  let prodTexto = '';
+  if (opcoes.produtosSelecionados && opcoes.produtosSelecionados.length > 0) {
+    if (opcoes.produtosSelecionados.length === 1) {
+      prodTexto = opcoes.produtosSelecionados[0];
+    } else {
+      prodTexto = `${opcoes.produtosSelecionados.length} produtos`;
+    }
+  } else if (opcoes.produtoSelecionado && opcoes.produtoSelecionado !== 'todos') {
+    prodTexto = opcoes.produtoSelecionado;
+  }
+
   doc.setTextColor(51, 65, 85);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.5);
-  doc.text(`Coord./Vend.: `, 14, 28);
+
+  let currentX = 14;
+  doc.text(`Coord./Vend.: `, currentX, 28);
+  currentX += doc.getTextWidth(`Coord./Vend.: `);
   doc.setFont('helvetica', 'normal');
-  doc.text(coordTexto, 37, 28);
+  doc.text(coordTexto, currentX, 28);
+  currentX += doc.getTextWidth(coordTexto) + 6;
 
   doc.setFont('helvetica', 'bold');
-  doc.text(`Indústria: `, 95, 28);
+  doc.text(`Indústria: `, currentX, 28);
+  currentX += doc.getTextWidth(`Indústria: `);
   doc.setFont('helvetica', 'normal');
-  doc.text(indTexto, 110, 28);
+  doc.text(indTexto, currentX, 28);
+  currentX += doc.getTextWidth(indTexto) + 6;
+
+  if (prodTexto) {
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Produto: `, currentX, 28);
+    currentX += doc.getTextWidth(`Produto: `);
+    doc.setFont('helvetica', 'normal');
+    const displayProd = prodTexto.length > 25 ? prodTexto.substring(0, 23) + '...' : prodTexto;
+    doc.text(displayProd, currentX, 28);
+    currentX += doc.getTextWidth(displayProd) + 6;
+  }
 
   if (lojaTexto) {
     doc.setFont('helvetica', 'bold');
-    doc.text(`Loja: `, 160, 28);
+    doc.text(`Loja: `, currentX, 28);
+    currentX += doc.getTextWidth(`Loja: `);
     doc.setFont('helvetica', 'normal');
-    doc.text(lojaTexto.length > 22 ? lojaTexto.substring(0, 20) + '...' : lojaTexto, 169, 28);
+    const displayLoja = lojaTexto.length > 20 ? lojaTexto.substring(0, 18) + '...' : lojaTexto;
+    doc.text(displayLoja, currentX, 28);
+    currentX += doc.getTextWidth(displayLoja) + 6;
   }
 
   if (opcoes.skuSelecionado && opcoes.skuSelecionado !== 'todos') {
-    const posX = lojaTexto ? 210 : 160;
     doc.setFont('helvetica', 'bold');
-    doc.text(`SKU: `, posX, 28);
+    doc.text(`SKU: `, currentX, 28);
+    currentX += doc.getTextWidth(`SKU: `);
     doc.setFont('helvetica', 'normal');
-    doc.text(opcoes.skuSelecionado, posX + 10, 28);
+    doc.text(opcoes.skuSelecionado, currentX, 28);
   }
 
-  const posCrit = opcoes.skuSelecionado && opcoes.skuSelecionado !== 'todos' ? 245 : 215;
   doc.setFont('helvetica', 'bold');
-  doc.text(`Critério: `, posCrit, 28);
+  doc.text(`Critério: `, doc.internal.pageSize.width - 65, 28);
   doc.setFont('helvetica', 'normal');
-  doc.text(`≤${diasCritico}d Crít. | ≥${diasNoPrazo}d No Prazo`, posCrit + 13, 28);
+  doc.text(`≤${diasCritico}d Crít. | ≥${diasNoPrazo}d No Prazo`, doc.internal.pageSize.width - 14, 28, { align: 'right' });
 
   // Totais
   let qtdTotal = 0;
@@ -316,6 +347,15 @@ export function criarRelatorioPDFDoc(
   }
   if (opcoes.industriaSelecionada && opcoes.industriaSelecionada !== 'todas') {
     sufixoNome += `_${opcoes.industriaSelecionada.replace(/[^a-zA-Z0-9]/g, '_')}`;
+  }
+  if (opcoes.produtosSelecionados && opcoes.produtosSelecionados.length > 0) {
+    if (opcoes.produtosSelecionados.length === 1) {
+      sufixoNome += `_Prod_${opcoes.produtosSelecionados[0].substring(0, 25).replace(/[^a-zA-Z0-9]/g, '_')}`;
+    } else {
+      sufixoNome += `_${opcoes.produtosSelecionados.length}_Produtos`;
+    }
+  } else if (opcoes.produtoSelecionado && opcoes.produtoSelecionado !== 'todos') {
+    sufixoNome += `_Prod_${opcoes.produtoSelecionado.substring(0, 25).replace(/[^a-zA-Z0-9]/g, '_')}`;
   }
   if (opcoes.lojaSelecionada && opcoes.lojaSelecionada !== 'todas') {
     sufixoNome += `_${opcoes.lojaSelecionada.replace(/[^a-zA-Z0-9]/g, '_')}`;
