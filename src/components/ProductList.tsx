@@ -18,6 +18,7 @@ import {
   MapPin,
   UserCheck,
   Barcode,
+  Clock,
 } from 'lucide-react';
 import { ItemValidade, FiltroStatus, ProdutoCatalogo } from '../types';
 import {
@@ -854,6 +855,7 @@ export const ProductList: React.FC<ProductListProps> = ({
               <th className="py-3 px-4">Produto</th>
               <th className="py-3 px-4 text-center">Qtd / Un</th>
               <th className="py-3 px-4">Vencimento</th>
+              <th className="py-3 px-3 text-center">Dias para Vencer</th>
               <th className="py-3 px-4">Situação</th>
               <th className="py-3 px-4 hidden sm:table-cell">Lote / Obs</th>
               <th className="py-3 px-4 text-right">Ações</th>
@@ -862,14 +864,14 @@ export const ProductList: React.FC<ProductListProps> = ({
           <tbody className="divide-y divide-slate-100">
             {isLoading ? (
               <tr>
-                <td colSpan={9} className="py-12 text-center text-slate-500">
+                <td colSpan={10} className="py-12 text-center text-slate-500">
                   <div className="inline-block animate-spin rounded-full h-6 w-6 border-2 border-blue-600 border-t-transparent" />
                   <p className="mt-2 text-xs">Carregando itens de validade...</p>
                 </td>
               </tr>
             ) : itensFiltrados.length === 0 ? (
               <tr>
-                <td colSpan={9} className="py-12 text-center text-slate-500">
+                <td colSpan={10} className="py-12 text-center text-slate-500">
                   <Package className="w-8 h-8 mx-auto text-slate-300 mb-2" />
                   <p className="font-medium text-slate-700">Nenhum registro de validade encontrado</p>
                   <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
@@ -1012,6 +1014,11 @@ export const ProductList: React.FC<ProductListProps> = ({
                         />
                       </td>
 
+                      {/* Dias para Vencer */}
+                      <td className="py-2.5 px-3 text-center text-xs text-slate-400 font-mono">
+                        -
+                      </td>
+
                       {/* Situação */}
                       <td className="py-2.5 px-3 text-xs text-slate-500 italic">
                         Ao salvar
@@ -1141,6 +1148,26 @@ export const ProductList: React.FC<ProductListProps> = ({
                         <Calendar className="w-3.5 h-3.5 text-slate-400" />
                         <span>{formatarDataBR(item.data_vencimento)}</span>
                       </div>
+                    </td>
+
+                    {/* Dias para Vencer */}
+                    <td className="py-3 px-3 text-center whitespace-nowrap">
+                      <span
+                        className={`inline-flex items-center gap-1 font-mono font-bold text-xs px-2.5 py-0.5 rounded-full border ${
+                          dias < 0
+                            ? 'bg-red-50 text-red-700 border-red-200'
+                            : dias === 0
+                            ? 'bg-red-100 text-red-900 border-red-300 font-black'
+                            : dias <= 7
+                            ? 'bg-amber-50 text-amber-800 border-amber-200'
+                            : dias <= 30
+                            ? 'bg-blue-50 text-blue-800 border-blue-200'
+                            : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                        }`}
+                      >
+                        <Clock className="w-3 h-3 shrink-0" />
+                        <span>{dias < 0 ? `${dias}d` : dias === 0 ? '0d (Hoje)' : `${dias}d`}</span>
+                      </span>
                     </td>
 
                     {/* Situação / Badge */}

@@ -178,7 +178,7 @@ export function criarRelatorioPDFDoc(
       diasStr = `${dias}d`;
     } else if (dias === 0) {
       situacao = 'Vence HOJE';
-      diasStr = '0d';
+      diasStr = '0d (Hoje)';
     } else if (dias <= diasCritico) {
       situacao = `Crítico (≤${diasCritico}d)`;
       diasStr = `${dias}d`;
@@ -210,7 +210,7 @@ export function criarRelatorioPDFDoc(
       'Descrição do Produto',
       'Qtd',
       'Vencimento',
-      'Dias',
+      'Dias p/ Vencer',
       'Situação',
     ]],
     body: rows,
@@ -233,15 +233,15 @@ export function criarRelatorioPDFDoc(
       fillColor: [248, 250, 252],
     },
     columnStyles: {
-      0: { cellWidth: 32, fontStyle: 'bold' }, // Vendedor / Coord
-      1: { cellWidth: 32 },                   // Loja
-      2: { cellWidth: 28 },                   // Indústria
+      0: { cellWidth: 30, fontStyle: 'bold' }, // Vendedor / Coord
+      1: { cellWidth: 30 },                   // Loja
+      2: { cellWidth: 26 },                   // Indústria
       3: { cellWidth: 20, font: 'courier' },  // SKU
       4: { cellWidth: 'auto', fontStyle: 'bold' }, // Produto
       5: { cellWidth: 16, halign: 'center' }, // Qtd
       6: { cellWidth: 20, halign: 'center', font: 'courier' }, // Vencimento
-      7: { cellWidth: 14, halign: 'center', fontStyle: 'bold' }, // Dias
-      8: { cellWidth: 24, halign: 'center', fontStyle: 'bold' }, // Situação
+      7: { cellWidth: 20, halign: 'center', fontStyle: 'bold' }, // Dias p/ Vencer
+      8: { cellWidth: 26, halign: 'center', fontStyle: 'bold' }, // Situação
     },
     didParseCell: (data) => {
       // Destaque de cores na coluna "Situação" e "Dias"

@@ -1,19 +1,86 @@
 import * as XLSX from 'xlsx';
 import { ItemValidade, ProdutoCatalogo } from '../types';
 
+/**
+ * Extrai com precisão ano, mês e dia de qualquer formato (ISO, BR, timestamp, etc.)
+ */
+export function extrairAnoMesDia(dataInput: any): { ano: number; mes: number; dia: number } | null {
+  if (!dataInput) return null;
+
+  if (dataInput instanceof Date && !isNaN(dataInput.getTime())) {
+    return {
+      ano: dataInput.getFullYear(),
+      mes: dataInput.getMonth() + 1,
+      dia: dataInput.getDate(),
+    };
+  }
+
+  const str = String(dataInput).trim();
+  if (!str) return null;
+
+  // 1. Formato YYYY-MM-DD (com ou sem timestamp T... ou espaço...)
+  const matchIso = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (matchIso) {
+    const ano = parseInt(matchIso[1], 10);
+    const mes = parseInt(matchIso[2], 10);
+    const dia = parseInt(matchIso[3], 10);
+    if (ano > 1900 && mes >= 1 && mes <= 12 && dia >= 1 && dia <= 31) {
+      return { ano, mes, dia };
+    }
+  }
+
+  // 2. Formato brasileiro DD/MM/YYYY ou DD-MM-YYYY
+  const matchBr = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+  if (matchBr) {
+    let dia = parseInt(matchBr[1], 10);
+    let mes = parseInt(matchBr[2], 10);
+    let ano = parseInt(matchBr[3], 10);
+    if (ano < 100) ano += 2000;
+    if (ano > 1900 && mes >= 1 && mes <= 12 && dia >= 1 && dia <= 31) {
+      return { ano, mes, dia };
+    }
+  }
+
+  // 3. Fallback: tentar Date.parse
+  const d = new Date(str);
+  if (!isNaN(d.getTime())) {
+    if (str.includes('Z')) {
+      return {
+        ano: d.getUTCFullYear(),
+        mes: d.getUTCMonth() + 1,
+        dia: d.getUTCDate(),
+      };
+    }
+    return {
+      ano: d.getFullYear(),
+      mes: d.getMonth() + 1,
+      dia: d.getDate(),
+    };
+  }
+
+  return null;
+}
+
 export function calcularDiasRestantes(dataVencimentoStr: string): number {
   if (!dataVencimentoStr) return 0;
+
+  const ymd = extrairAnoMesDia(dataVencimentoStr);
+  if (!ymd) return 0;
+
+  // Pega a data local de hoje (ano, mês, dia)
   const hoje = new Date();
-  hoje.setHours(0, 0, 0, 0);
+  const hojeAno = hoje.getFullYear();
+  const hojeMes = hoje.getMonth();
+  const hojeDia = hoje.getDate();
 
-  const [ano, mes, dia] = dataVencimentoStr.split('-').map(Number);
-  if (!ano || !mes || !dia) return 0;
+  // Compara usando UTC midnight para evitar qualquer distorção de fuso horário ou horário de verão
+  const utcHoje = Date.UTC(hojeAno, hojeMes, hojeDia);
+  const utcVenc = Date.UTC(ymd.ano, ymd.mes - 1, ymd.dia);
 
-  const vencimento = new Date(ano, mes - 1, dia);
-  vencimento.setHours(0, 0, 0, 0);
+  const diffMs = utcVenc - utcHoje;
+  const umDiaMs = 1000 * 60 * 60 * 24;
 
-  const diffMs = vencimento.getTime() - hoje.getTime();
-  return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+  return Math.round(diffMs / umDiaMs);
 }
 
 export function obterStatusValidade(diasRestantes: number): {
@@ -58,9 +125,11 @@ export function obterStatusValidade(diasRestantes: number): {
 
 export function formatarDataBR(dataIsoStr: string): string {
   if (!dataIsoStr) return '';
-  const [ano, mes, dia] = dataIsoStr.split('T')[0].split('-');
-  if (!ano || !mes || !dia) return dataIsoStr;
-  return `${dia}/${mes}/${ano}`;
+  const ymd = extrairAnoMesDia(dataIsoStr);
+  if (!ymd) return String(dataIsoStr);
+  const diaStr = String(ymd.dia).padStart(2, '0');
+  const mesStr = String(ymd.mes).padStart(2, '0');
+  return `${diaStr}/${mesStr}/${ymd.ano}`;
 }
 
 export function parseDataBrOuIso(val: any): string {
