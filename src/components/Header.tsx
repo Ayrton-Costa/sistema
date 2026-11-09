@@ -8,6 +8,7 @@ import {
   FolderOpen,
   CloudCheck,
   FileText,
+  Trash2,
 } from 'lucide-react';
 import { SupabaseConfig } from '../types';
 
@@ -23,8 +24,10 @@ interface HeaderProps {
   onRefresh: () => void;
   onOpenLogos?: () => void;
   onOpenRelatorioPDF?: () => void;
+  onOpenExclusaoMassa?: () => void;
   isRefreshing: boolean;
   totalItems: number;
+  totalVencidos?: number;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -36,8 +39,10 @@ export const Header: React.FC<HeaderProps> = ({
   onRefresh,
   onOpenLogos,
   onOpenRelatorioPDF,
+  onOpenExclusaoMassa,
   isRefreshing,
   totalItems,
+  totalVencidos,
 }) => {
   const isConnected = supabaseConfig.isConnected && Boolean(supabaseConfig.url);
 
@@ -154,6 +159,27 @@ export const Header: React.FC<HeaderProps> = ({
               <span>Gerar PDF</span>
             </button>
           )}
+
+          {/* Atalho de Exclusão em Massa por Status */}
+          {onOpenExclusaoMassa && (
+            <button
+              id="btn-header-exclusao-massa"
+              type="button"
+              onClick={onOpenExclusaoMassa}
+              title="Exclusão em massa por status (ex: excluir todos os vencidos de uma vez)"
+              className="inline-flex items-center gap-1.5 h-9 px-3 bg-red-50 hover:bg-red-100 text-red-800 border border-red-200 text-xs font-bold rounded-lg shadow-2xs transition cursor-pointer"
+            >
+              <Trash2 className="w-4 h-4 text-red-600" />
+              <span className="hidden sm:inline">Exclusão</span>
+              <span>Massa</span>
+              {totalVencidos != null && totalVencidos > 0 && (
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-red-600 text-white font-bold">
+                  {totalVencidos}
+                </span>
+              )}
+            </button>
+          )}
+
 
           {/* Botão Principal: Extrair em Excel */}
           <button

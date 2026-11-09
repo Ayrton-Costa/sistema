@@ -1167,6 +1167,49 @@ export async function deleteItemData(id: string, config: SupabaseConfig): Promis
   return { success: true };
 }
 
+export async function deleteBatchItemsData(
+  ids: string[],
+  config: SupabaseConfig
+): Promise<{ success: boolean; count: number; error?: string }> {
+  if (ids.length === 0) {
+    return { success: true, count: 0 };
+  }
+
+  const idSet = new Set(ids);
+  const client = getSupabaseClient(config);
+
+  // Remove localmente
+  const current = getLocalItems();
+  const rest = current.filter((it) => !idSet.has(it.id));
+  saveLocalItems(rest);
+
+  if (client && config.isConnected) {
+    try {
+      // Deleta em chunks de 100 se for uma lista muito grande para evitar limites de URL/query
+      const chunkSize = 100;
+      for (let i = 0; i < ids.length; i += chunkSize) {
+        const chunk = ids.slice(i, i + chunkSize);
+        const { error } = await client
+          .from(config.tableName || 'validades')
+          .delete()
+          .in('id', chunk);
+
+        if (error) {
+          console.error('Erro ao deletar lote no Supabase:', error);
+          return { success: false, count: i, error: error.message };
+        }
+      }
+      return { success: true, count: ids.length };
+    } catch (err: any) {
+      console.error('Exceção ao deletar lote no Supabase:', err);
+      return { success: false, count: 0, error: err.message };
+    }
+  }
+
+  return { success: true, count: ids.length };
+}
+
+
 export async function insertBatchItemsData(
   itemsToAdd: Array<Omit<ItemValidade, 'id' | 'created_at'>>,
   config: SupabaseConfig

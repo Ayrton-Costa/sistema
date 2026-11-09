@@ -47,7 +47,9 @@ export type ModoVisualizacao =
   | 'cadastro_produtos'
   | 'logos'
   | 'coordenadores_lojas'
-  | 'relatorio_pdf';
+  | 'relatorio_pdf'
+  | 'exclusao_massa';
+
 
 export interface LojaCatalogo {
   nome: string;

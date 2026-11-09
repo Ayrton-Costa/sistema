@@ -9,6 +9,7 @@ import { ProductRegistrationView } from './components/ProductRegistrationView';
 import { LogoManagementView } from './components/LogoManagementView';
 import { CoordinatorStoreBindingView } from './components/CoordinatorStoreBindingView';
 import { PdfReportView } from './components/PdfReportView';
+import { BulkDeleteView } from './components/BulkDeleteView';
 import { SupabaseModal } from './components/SupabaseModal';
 import { ImportExcelModal } from './components/ImportExcelModal';
 import { ItemValidade, FiltroStatus, SupabaseConfig, ModoVisualizacao, ProdutoCatalogo } from './types';
@@ -22,6 +23,7 @@ import {
   insertBatchItemsData,
   updateItemData,
   deleteItemData,
+  deleteBatchItemsData,
   clearLocalItems,
   insertProdutoCatalogo,
   insertBatchProdutosCatalogo,
@@ -32,8 +34,8 @@ import {
   saveLocalCoordenadores,
   saveLocalLojas,
 } from './lib/supabase';
-import { exportarParaExcel } from './lib/excel';
-import { AlertCircle, CheckCircle2, Info, X, Table, Network, Database, Sparkles, PackagePlus, FolderOpen, CloudCheck, UserCheck, FileText, FileDown } from 'lucide-react';
+import { exportarParaExcel, calcularDiasRestantes } from './lib/excel';
+import { AlertCircle, CheckCircle2, Info, X, Table, Network, Database, Sparkles, PackagePlus, FolderOpen, CloudCheck, UserCheck, FileText, FileDown, Trash2 } from 'lucide-react';
 
 export default function App() {
   const [items, setItems] = useState<ItemValidade[]>([]);
@@ -159,6 +161,12 @@ export default function App() {
     return Array.from(new Set(items.map((i) => i.industria).filter(Boolean)));
   }, [items]);
 
+  // Contagem de vencidos para badge na aba de exclusão em massa
+  const totalVencidosGlobal = useMemo(() => {
+    return items.filter((it) => calcularDiasRestantes(it.data_vencimento) <= 0).length;
+  }, [items]);
+
+
   // Inclusão rápida de item
   const handleAddItem = async (novoItem: Omit<ItemValidade, 'id' | 'created_at'>) => {
     setIsSaving(true);
@@ -223,6 +231,27 @@ export default function App() {
     } catch (err: any) {
       console.error('Erro ao excluir:', err);
       exibirNotificacao('erro', 'Erro ao remover item.');
+    }
+  };
+
+  // Exclusão em lote / massa por status
+  const handleDeleteBatch = async (ids: string[]) => {
+    if (ids.length === 0) return { success: true, count: 0 };
+    try {
+      const idSet = new Set(ids);
+      setItems((prev) => prev.filter((it) => !idSet.has(it.id)));
+      const res = await deleteBatchItemsData(ids, supabaseConfig);
+
+      if (res.error) {
+        exibirNotificacao('aviso', `Itens removidos localmente. Supabase retornou: ${res.error}`);
+      } else {
+        exibirNotificacao('sucesso', `${ids.length} item(ns) excluído(s) com sucesso do controle!`);
+      }
+      return res;
+    } catch (err: any) {
+      console.error('Erro ao excluir lote:', err);
+      exibirNotificacao('erro', 'Falha ao processar exclusão em massa.');
+      return { success: false, count: 0, error: err.message };
     }
   };
 
@@ -517,8 +546,10 @@ export default function App() {
         onRefresh={() => carregarDados(supabaseConfig, true)}
         onOpenLogos={() => setModoVisualizacao('logos')}
         onOpenRelatorioPDF={() => setModoVisualizacao('relatorio_pdf')}
+        onOpenExclusaoMassa={() => setModoVisualizacao('exclusao_massa')}
         isRefreshing={isRefreshing}
         totalItems={items.length}
+        totalVencidos={totalVencidosGlobal}
       />
 
       {/* Notificação Toast */}
@@ -697,6 +728,26 @@ export default function App() {
               </span>
             </button>
             <button
+              id="btn-modo-exclusao-massa"
+              type="button"
+              onClick={() => setModoVisualizacao('exclusao_massa')}
+              className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                modoVisualizacao === 'exclusao_massa'
+                  ? 'bg-white text-red-700 shadow-xs ring-1 ring-red-200'
+                  : 'text-slate-600 hover:text-red-700'
+              }`}
+            >
+              <Trash2 className="w-4 h-4 text-red-600 shrink-0" />
+              <span className="truncate">Exclusão em Massa</span>
+              {totalVencidosGlobal > 0 ? (
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+                  modoVisualizacao === 'exclusao_massa' ? 'bg-red-600 text-white' : 'bg-red-100 text-red-800'
+                }`}>
+                  {totalVencidosGlobal} venc.
+                </span>
+              ) : null}
+            </button>
+            <button
               id="btn-modo-logos"
               type="button"
               onClick={() => setModoVisualizacao('logos')}
@@ -729,6 +780,8 @@ export default function App() {
               <span>Ligar e transferir <strong>Lojas para Coordenadores</strong> com caixas de seleção</span>
             ) : modoVisualizacao === 'relatorio_pdf' ? (
               <span>Gerar arquivo PDF e resumo por <strong>Vendedor / Loja / Indústria / SKU / Qtd / Vencimento</strong></span>
+            ) : modoVisualizacao === 'exclusao_massa' ? (
+              <span>Excluir em massa por status: <strong>descarte de todos os vencidos de uma só vez</strong> com segurança</span>
             ) : (
               <span>Anexar e gerenciar logotipo do sistema e marcas das indústrias no <strong>Google Drive</strong></span>
             )}
@@ -822,6 +875,18 @@ export default function App() {
             produtosPorIndustria={catalogoSupabase.produtosPorIndustria}
             systemBranding={systemBranding}
             supabaseConfig={supabaseConfig}
+          />
+        ) : modoVisualizacao === 'exclusao_massa' ? (
+          <BulkDeleteView
+            items={items}
+            catalogoLojas={catalogoSupabase.lojas}
+            catalogoCoordenadores={catalogoSupabase.coordenadores}
+            catalogoIndustrias={catalogoSupabase.industrias}
+            catalogoProdutos={catalogoSupabase.produtosDetalhados}
+            supabaseConfig={supabaseConfig}
+            onDeleteBatch={handleDeleteBatch}
+            onRefresh={() => carregarDados(supabaseConfig, true)}
+            isRefreshing={isRefreshing}
           />
         ) : (
           <LogoManagementView
