@@ -1,7 +1,7 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { ItemValidade } from '../types';
-import { calcularDiasRestantes, formatarDataBR } from './excel';
+import { calcularDiasRestantes, calcularDiasDesdeAdicao, formatarDataBR } from './excel';
 
 export interface OpcoesRelatorioPDF {
   coordenadorSelecionado?: string;
@@ -218,6 +218,8 @@ export function criarRelatorioPDFDoc(
       diasStr = `${dias}d`;
     }
 
+    const infoCad = calcularDiasDesdeAdicao(it.created_at);
+
     return [
       responsavel,
       `${loja}${uf}`,
@@ -228,6 +230,8 @@ export function criarRelatorioPDFDoc(
       vencimento,
       diasStr,
       situacao,
+      infoCad.dataFormatada,
+      infoCad.rotulo,
     ];
   });
 
@@ -243,6 +247,8 @@ export function criarRelatorioPDFDoc(
       'Vencimento',
       'Dias p/ Vencer',
       'Situação',
+      'Cadastrado em',
+      'Dias Cad.',
     ]],
     body: rows,
     theme: 'striped',
@@ -264,15 +270,17 @@ export function criarRelatorioPDFDoc(
       fillColor: [248, 250, 252],
     },
     columnStyles: {
-      0: { cellWidth: 30, fontStyle: 'bold' }, // Vendedor / Coord
-      1: { cellWidth: 30 },                   // Loja
-      2: { cellWidth: 26 },                   // Indústria
-      3: { cellWidth: 20, font: 'courier' },  // SKU
+      0: { cellWidth: 26, fontStyle: 'bold' }, // Vendedor / Coord
+      1: { cellWidth: 26 },                   // Loja
+      2: { cellWidth: 22 },                   // Indústria
+      3: { cellWidth: 18, font: 'courier' },  // SKU
       4: { cellWidth: 'auto', fontStyle: 'bold' }, // Produto
-      5: { cellWidth: 16, halign: 'center' }, // Qtd
-      6: { cellWidth: 20, halign: 'center', font: 'courier' }, // Vencimento
-      7: { cellWidth: 20, halign: 'center', fontStyle: 'bold' }, // Dias p/ Vencer
-      8: { cellWidth: 26, halign: 'center', fontStyle: 'bold' }, // Situação
+      5: { cellWidth: 14, halign: 'center' }, // Qtd
+      6: { cellWidth: 18, halign: 'center', font: 'courier' }, // Vencimento
+      7: { cellWidth: 18, halign: 'center', fontStyle: 'bold' }, // Dias p/ Vencer
+      8: { cellWidth: 24, halign: 'center', fontStyle: 'bold' }, // Situação
+      9: { cellWidth: 18, halign: 'center', font: 'courier' }, // Cadastrado em
+      10: { cellWidth: 16, halign: 'center' }, // Dias Cadastrado
     },
     didParseCell: (data) => {
       // Destaque de cores na coluna "Situação" e "Dias"
@@ -309,6 +317,8 @@ export function criarRelatorioPDFDoc(
       atencao > 0
         ? `${vencidos} venc. / ${criticos} crít. / ${atencao} aten. / ${noPrazo} no prazo`
         : `${vencidos} venc. / ${criticos} crít. / ${noPrazo} no prazo`,
+      '-',
+      '-',
     ]],
     footStyles: {
       fillColor: [241, 245, 249],

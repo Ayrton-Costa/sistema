@@ -16,9 +16,12 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
+  CalendarClock,
+  History,
 } from 'lucide-react';
 import { ProdutoCatalogo, ItemValidade, SupabaseConfig } from '../types';
 import { IndustryLogoItem } from '../lib/firebase';
+import { calcularDiasDesdeAdicao } from '../lib/excel';
 
 interface BaseProductsViewProps {
   produtosCatalogo: ProdutoCatalogo[];
@@ -334,6 +337,8 @@ export const BaseProductsView: React.FC<BaseProductsViewProps> = ({
                 <th className="py-3 px-4">Indústria / Marca</th>
                 <th className="py-3 px-4 text-center">Un.</th>
                 <th className="py-3 px-4 text-center">No Estoque</th>
+                <th className="py-3 px-4 text-center">Data Cadastro</th>
+                <th className="py-3 px-3 text-center">Dias Cadastrado</th>
                 <th className="py-3 px-4 text-right">Ação</th>
               </tr>
             </thead>
@@ -341,6 +346,7 @@ export const BaseProductsView: React.FC<BaseProductsViewProps> = ({
               {produtosPaginados.map((prod, idx) => {
                 const chave = `${prod.nome.trim().toLowerCase()}_${prod.industria.trim().toLowerCase()}`;
                 const totalValidades = contagemValidadesPorProduto.get(chave) || 0;
+                const infoCad = calcularDiasDesdeAdicao(prod.created_at);
 
                 return (
                   <tr key={`${prod.nome}-${idx}`} className="hover:bg-slate-50/80 transition-colors">
@@ -397,6 +403,18 @@ export const BaseProductsView: React.FC<BaseProductsViewProps> = ({
                       ) : (
                         <span className="text-[11px] text-slate-400">Sem lotes ativos</span>
                       )}
+                    </td>
+
+                    {/* Data de Cadastro */}
+                    <td className="py-3 px-4 text-center font-mono text-xs text-slate-700 whitespace-nowrap">
+                      {infoCad.dataFormatada}
+                    </td>
+
+                    {/* Dias Cadastrado */}
+                    <td className="py-3 px-3 text-center whitespace-nowrap">
+                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                        {infoCad.rotulo}
+                      </span>
                     </td>
 
                     {/* Ação: Lançar Validade */}

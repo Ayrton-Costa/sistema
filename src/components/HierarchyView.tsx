@@ -39,10 +39,13 @@ import {
   Monitor,
   RotateCcw,
   GripVertical,
+  CalendarClock,
+  History,
 } from 'lucide-react';
 import { ItemValidade, NivelHierarquia, ProdutoCatalogo } from '../types';
 import {
   calcularDiasRestantes,
+  calcularDiasDesdeAdicao,
   obterStatusValidade,
   formatarDataBR,
   exportarParaExcel,
@@ -179,6 +182,28 @@ const COLUNAS_BASE: ColunaConfig[] = [
     icone: AlertTriangle,
   },
   {
+    id: 'data_cadastro',
+    rotulo: 'Data Cadastro',
+    rotuloCurto: 'Cadastro',
+    minLargura: 110,
+    larguraPadrao: 125,
+    alinhamento: 'center',
+    podeOrdenar: true,
+    podeMover: true,
+    icone: CalendarClock,
+  },
+  {
+    id: 'dias_cadastro',
+    rotulo: 'Dias Cadastrado',
+    rotuloCurto: 'Dias Cad.',
+    minLargura: 110,
+    larguraPadrao: 125,
+    alinhamento: 'center',
+    podeOrdenar: true,
+    podeMover: true,
+    icone: History,
+  },
+  {
     id: 'acoes',
     rotulo: 'Ações',
     rotuloCurto: 'Ações',
@@ -200,6 +225,8 @@ const ORDEM_PADRAO_COLUNAS = [
   'data_vencimento',
   'dias_vencer',
   'situacao',
+  'data_cadastro',
+  'dias_cadastro',
   'acoes',
 ];
 
@@ -674,6 +701,12 @@ export const HierarchyView: React.FC<HierarchyViewProps> = ({
       case 'produto':
         res = (a.produto || '').localeCompare(b.produto || '');
         break;
+      case 'data_cadastro':
+        res = new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
+        break;
+      case 'dias_cadastro':
+        res = calcularDiasDesdeAdicao(a.created_at).diasAtras - calcularDiasDesdeAdicao(b.created_at).diasAtras;
+        break;
       default:
         res = 0;
     }
@@ -1134,6 +1167,10 @@ export const HierarchyView: React.FC<HierarchyViewProps> = ({
           </div>
         );
 
+      case 'data_cadastro':
+      case 'dias_cadastro':
+        return <span className="text-slate-400 text-xs">-</span>;
+
       case 'acoes':
         return (
           <button
@@ -1267,6 +1304,26 @@ export const HierarchyView: React.FC<HierarchyViewProps> = ({
             {statusObj.rotulo}
           </span>
         );
+
+      case 'data_cadastro': {
+        const infoCad = calcularDiasDesdeAdicao(prod.created_at);
+        return (
+          <span className="inline-flex items-center gap-1 font-mono text-xs text-slate-700 bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
+            <CalendarClock className="w-3 h-3 text-slate-400" />
+            {infoCad.dataFormatada}
+          </span>
+        );
+      }
+
+      case 'dias_cadastro': {
+        const infoCad = calcularDiasDesdeAdicao(prod.created_at);
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+            <History className="w-3 h-3 text-slate-400" />
+            {infoCad.rotulo}
+          </span>
+        );
+      }
 
       case 'acoes':
         return (
@@ -1601,6 +1658,9 @@ export const HierarchyView: React.FC<HierarchyViewProps> = ({
               </span>
               <span>
                 Vencimento: <strong className="font-mono text-slate-900">{formatarDataBR(prod.data_vencimento)}</strong>
+              </span>
+              <span>
+                Cadastrado: <strong className="font-mono text-slate-900">{calcularDiasDesdeAdicao(prod.created_at).dataFormatada}</strong> ({calcularDiasDesdeAdicao(prod.created_at).rotulo})
               </span>
             </div>
             <div className="flex items-center gap-1 shrink-0">
@@ -2478,6 +2538,13 @@ export const HierarchyView: React.FC<HierarchyViewProps> = ({
                             <span className="text-[11px] font-bold text-emerald-700">
                               {resumoGeral.noPrazo} em dia
                             </span>
+                          </td>
+                        );
+                      }
+                      if (colId === 'data_cadastro' || colId === 'dias_cadastro') {
+                        return (
+                          <td key={colId} className="py-3 px-3 border-r border-slate-300 text-center text-slate-400 font-mono text-xs">
+                            -
                           </td>
                         );
                       }

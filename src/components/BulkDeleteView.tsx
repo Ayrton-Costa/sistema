@@ -16,10 +16,12 @@ import {
   Layers,
   ChevronRight,
   ShieldAlert,
-  Info
+  Info,
+  CalendarClock,
+  History,
 } from 'lucide-react';
 import { ItemValidade, LojaCatalogo, ProdutoCatalogo, SupabaseConfig } from '../types';
-import { calcularDiasRestantes, formatarDataBR } from '../lib/excel';
+import { calcularDiasRestantes, calcularDiasDesdeAdicao, formatarDataBR } from '../lib/excel';
 
 interface BulkDeleteViewProps {
   items: ItemValidade[];
@@ -721,6 +723,8 @@ export const BulkDeleteView: React.FC<BulkDeleteViewProps> = ({
                   <th className="py-2.5 px-3 text-center">Vencimento</th>
                   <th className="py-2.5 px-3">Loja / Filial</th>
                   <th className="py-2.5 px-3">Coordenador / Resp.</th>
+                  <th className="py-2.5 px-3 text-center">Data Cadastro</th>
+                  <th className="py-2.5 px-3 text-center">Dias Cadastrado</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -811,6 +815,14 @@ export const BulkDeleteView: React.FC<BulkDeleteViewProps> = ({
                       </td>
                       <td className="py-2.5 px-3 text-slate-600">
                         {item.vendedor || item.coordenador || '-'}
+                      </td>
+                      <td className="py-2.5 px-3 text-center font-mono text-slate-700 whitespace-nowrap">
+                        {calcularDiasDesdeAdicao(item.created_at).dataFormatada}
+                      </td>
+                      <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                          {calcularDiasDesdeAdicao(item.created_at).rotulo}
+                        </span>
                       </td>
                     </tr>
                   );

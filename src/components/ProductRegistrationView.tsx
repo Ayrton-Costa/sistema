@@ -27,12 +27,15 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
+  CalendarClock,
+  History,
 } from 'lucide-react';
 import { ProdutoCatalogo, SupabaseConfig } from '../types';
 import {
   exportarProdutosCatalogoParaExcel,
   baixarModeloCadastroProdutosExcel,
   importarProdutosDeExcel,
+  calcularDiasDesdeAdicao,
 } from '../lib/excel';
 
 interface ProductRegistrationViewProps {
@@ -1083,11 +1086,15 @@ CREATE POLICY "Acesso total produtos" ON ${productTable}
                   <th className="py-3 px-4">Indústria / Marca</th>
                   <th className="py-3 px-4 text-center">Un.</th>
                   <th className="py-3 px-4 text-center">Status Supabase</th>
+                  <th className="py-3 px-4 text-center">Data Cadastro</th>
+                  <th className="py-3 px-3 text-center">Dias Cadastrado</th>
                   <th className="py-3 px-4 text-right">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {produtosPaginados.map((item, idx) => (
+                {produtosPaginados.map((item, idx) => {
+                  const infoCad = calcularDiasDesdeAdicao(item.created_at);
+                  return (
                   <tr key={`${item.nome}-${item.industria}-${idx}`} className="hover:bg-slate-50/80 transition-colors">
                     {/* Código */}
                     <td className="py-3 px-4">
@@ -1138,6 +1145,18 @@ CREATE POLICY "Acesso total produtos" ON ${productTable}
                       )}
                     </td>
 
+                    {/* Data de Cadastro */}
+                    <td className="py-3 px-4 text-center font-mono text-xs text-slate-700 whitespace-nowrap">
+                      {infoCad.dataFormatada}
+                    </td>
+
+                    {/* Dias Cadastrado */}
+                    <td className="py-3 px-3 text-center whitespace-nowrap">
+                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                        {infoCad.rotulo}
+                      </span>
+                    </td>
+
                     {/* Ações */}
                     <td className="py-3 px-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">
@@ -1180,8 +1199,9 @@ CREATE POLICY "Acesso total produtos" ON ${productTable}
                       </div>
                     </td>
                   </tr>
-                ))}
-              </tbody>
+                );
+              })}
+            </tbody>
             </table>
           )}
         </div>

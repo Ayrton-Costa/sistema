@@ -83,6 +83,50 @@ export function calcularDiasRestantes(dataVencimentoStr: string): number {
   return Math.round(diffMs / umDiaMs);
 }
 
+export function calcularDiasDesdeAdicao(createdAtStr?: string): {
+  dataFormatada: string;
+  diasAtras: number;
+  rotulo: string;
+} {
+  if (!createdAtStr) {
+    return { dataFormatada: '-', diasAtras: 0, rotulo: '-' };
+  }
+
+  const ymd = extrairAnoMesDia(createdAtStr);
+  if (!ymd) {
+    return { dataFormatada: '-', diasAtras: 0, rotulo: '-' };
+  }
+
+  const hoje = new Date();
+  const hojeAno = hoje.getFullYear();
+  const hojeMes = hoje.getMonth();
+  const hojeDia = hoje.getDate();
+
+  const utcHoje = Date.UTC(hojeAno, hojeMes, hojeDia);
+  const utcCriado = Date.UTC(ymd.ano, ymd.mes - 1, ymd.dia);
+
+  const diffMs = utcHoje - utcCriado;
+  const umDiaMs = 1000 * 60 * 60 * 24;
+  const diasAtras = Math.max(0, Math.round(diffMs / umDiaMs));
+
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const dataFormatada = `${pad(ymd.dia)}/${pad(ymd.mes)}/${ymd.ano}`;
+
+  let rotulo = '0d (Hoje)';
+  if (diasAtras === 1) {
+    rotulo = '1d (Ontem)';
+  } else if (diasAtras > 1) {
+    rotulo = `${diasAtras}d atrás`;
+  }
+
+  return {
+    dataFormatada,
+    diasAtras,
+    rotulo,
+  };
+}
+
+
 export function obterStatusValidade(diasRestantes: number): {
   status: 'vencido' | 'critico' | 'atencao' | 'regular';
   rotulo: string;
@@ -320,6 +364,8 @@ export function exportarParaExcel(items: ItemValidade[], nomeArquivo = 'Controle
     else if (dias <= 7) statusTexto = `CRÍTICO (${dias} dias)`;
     else if (dias <= 30) statusTexto = `ATENÇÃO (${dias} dias)`;
 
+    const infoCadastro = calcularDiasDesdeAdicao(item.created_at);
+
     return {
       'Código': item.codigo || '-',
       'Loja': item.loja || '-',
@@ -334,7 +380,8 @@ export function exportarParaExcel(items: ItemValidade[], nomeArquivo = 'Controle
       'Situação': statusTexto,
       'Lote': item.lote || '-',
       'Observações': item.observacoes || '',
-      'Data de Cadastro': item.created_at ? formatarDataBR(item.created_at) : '',
+      'Data de Cadastro': infoCadastro.dataFormatada !== '-' ? infoCadastro.dataFormatada : '',
+      'Dias Cadastrado': infoCadastro.dataFormatada !== '-' ? infoCadastro.rotulo : '',
     };
   });
 
@@ -356,6 +403,7 @@ export function exportarParaExcel(items: ItemValidade[], nomeArquivo = 'Controle
     { wch: 16 }, // Lote
     { wch: 28 }, // Observações
     { wch: 18 }, // Data Cadastro
+    { wch: 18 }, // Dias Cadastrado
   ];
 
   const workbook = XLSX.utils.book_new();

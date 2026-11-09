@@ -19,10 +19,13 @@ import {
   UserCheck,
   Barcode,
   Clock,
+  CalendarClock,
+  History,
 } from 'lucide-react';
 import { ItemValidade, FiltroStatus, ProdutoCatalogo } from '../types';
 import {
   calcularDiasRestantes,
+  calcularDiasDesdeAdicao,
   obterStatusValidade,
   formatarDataBR,
   exportarParaExcel,
@@ -857,6 +860,8 @@ export const ProductList: React.FC<ProductListProps> = ({
               <th className="py-3 px-4">Vencimento</th>
               <th className="py-3 px-3 text-center">Dias para Vencer</th>
               <th className="py-3 px-4">Situação</th>
+              <th className="py-3 px-4">Data Cadastro</th>
+              <th className="py-3 px-3 text-center">Dias Cadastrado</th>
               <th className="py-3 px-4 hidden sm:table-cell">Lote / Obs</th>
               <th className="py-3 px-4 text-right">Ações</th>
             </tr>
@@ -864,14 +869,14 @@ export const ProductList: React.FC<ProductListProps> = ({
           <tbody className="divide-y divide-slate-100">
             {isLoading ? (
               <tr>
-                <td colSpan={10} className="py-12 text-center text-slate-500">
+                <td colSpan={12} className="py-12 text-center text-slate-500">
                   <div className="inline-block animate-spin rounded-full h-6 w-6 border-2 border-blue-600 border-t-transparent" />
                   <p className="mt-2 text-xs">Carregando itens de validade...</p>
                 </td>
               </tr>
             ) : itensFiltrados.length === 0 ? (
               <tr>
-                <td colSpan={10} className="py-12 text-center text-slate-500">
+                <td colSpan={12} className="py-12 text-center text-slate-500">
                   <Package className="w-8 h-8 mx-auto text-slate-300 mb-2" />
                   <p className="font-medium text-slate-700">Nenhum registro de validade encontrado</p>
                   <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
@@ -1022,6 +1027,16 @@ export const ProductList: React.FC<ProductListProps> = ({
                       {/* Situação */}
                       <td className="py-2.5 px-3 text-xs text-slate-500 italic">
                         Ao salvar
+                      </td>
+
+                      {/* Data de Cadastro */}
+                      <td className="py-2.5 px-3 text-xs text-slate-500 font-mono whitespace-nowrap">
+                        {calcularDiasDesdeAdicao(item.created_at).dataFormatada}
+                      </td>
+
+                      {/* Dias Cadastrado */}
+                      <td className="py-2.5 px-3 text-center text-xs text-slate-500 font-mono whitespace-nowrap">
+                        {calcularDiasDesdeAdicao(item.created_at).rotulo}
                       </td>
 
                       {/* Lote e Obs */}
@@ -1177,6 +1192,22 @@ export const ProductList: React.FC<ProductListProps> = ({
                       >
                         {dias <= 7 && <AlertCircle className="w-3 h-3" />}
                         {statusInfo.rotulo}
+                      </span>
+                    </td>
+
+                    {/* Data de Cadastro */}
+                    <td className="py-3 px-4 whitespace-nowrap">
+                      <div className="flex items-center gap-1.5 text-slate-700 font-medium text-xs">
+                        <CalendarClock className="w-3.5 h-3.5 text-slate-400" />
+                        <span>{calcularDiasDesdeAdicao(item.created_at).dataFormatada}</span>
+                      </div>
+                    </td>
+
+                    {/* Dias Cadastrado */}
+                    <td className="py-3 px-3 text-center whitespace-nowrap">
+                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200">
+                        <History className="w-3 h-3 text-slate-400" />
+                        <span>{calcularDiasDesdeAdicao(item.created_at).rotulo}</span>
                       </span>
                     </td>
 

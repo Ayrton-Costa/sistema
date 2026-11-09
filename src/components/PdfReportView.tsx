@@ -31,9 +31,11 @@ import {
   Share2,
   Copy,
   ExternalLink,
+  CalendarClock,
+  History,
 } from 'lucide-react';
 import { ItemValidade, LojaCatalogo, SupabaseConfig, ProdutoCatalogo } from '../types';
-import { calcularDiasRestantes, formatarDataBR } from '../lib/excel';
+import { calcularDiasRestantes, calcularDiasDesdeAdicao, formatarDataBR } from '../lib/excel';
 import { gerarRelatorioPDF, gerarRelatorioPDFFile } from '../lib/pdfGenerator';
 
 interface PdfReportViewProps {
@@ -112,7 +114,9 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
     | 'quantidade'
     | 'vencimento'
     | 'dias'
-    | 'situacao';
+    | 'situacao'
+    | 'data_cadastro'
+    | 'dias_cadastro';
   type DirecaoOrdenacao = 'asc' | 'desc';
 
   const [colunaOrdenacao, setColunaOrdenacao] = useState<ColunaOrdenacao>('dias');
@@ -649,6 +653,16 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
         case 'situacao': {
           const diasA = calcularDiasRestantes(a.data_vencimento);
           const diasB = calcularDiasRestantes(b.data_vencimento);
+          return (diasA - diasB) * fator;
+        }
+        case 'data_cadastro': {
+          const valA = new Date(a.created_at || 0).getTime();
+          const valB = new Date(b.created_at || 0).getTime();
+          return (valA - valB) * fator;
+        }
+        case 'dias_cadastro': {
+          const diasA = calcularDiasDesdeAdicao(a.created_at).diasAtras;
+          const diasB = calcularDiasDesdeAdicao(b.created_at).diasAtras;
           return (diasA - diasB) * fator;
         }
         default:
@@ -2073,6 +2087,44 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
                         )}
                       </div>
                     </th>
+
+                    <th
+                      onClick={() => alternarOrdenacao('data_cadastro')}
+                      className="py-2.5 px-2.5 text-center cursor-pointer hover:bg-slate-700 transition-colors group"
+                      title="Clique para ordenar por Data de Cadastro"
+                    >
+                      <div className="flex items-center justify-center gap-1.5">
+                        <span>Data Cadastro</span>
+                        {colunaOrdenacao === 'data_cadastro' ? (
+                          direcaoOrdenacao === 'asc' ? (
+                            <ArrowUp className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                          ) : (
+                            <ArrowDown className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                          )
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-40 group-hover:opacity-100 shrink-0" />
+                        )}
+                      </div>
+                    </th>
+
+                    <th
+                      onClick={() => alternarOrdenacao('dias_cadastro')}
+                      className="py-2.5 px-2.5 text-center cursor-pointer hover:bg-slate-700 transition-colors group"
+                      title="Clique para ordenar por Dias Cadastrado"
+                    >
+                      <div className="flex items-center justify-center gap-1.5">
+                        <span>Dias Cadastrado</span>
+                        {colunaOrdenacao === 'dias_cadastro' ? (
+                          direcaoOrdenacao === 'asc' ? (
+                            <ArrowUp className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                          ) : (
+                            <ArrowDown className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                          )
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 opacity-40 group-hover:opacity-100 shrink-0" />
+                        )}
+                      </div>
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 text-slate-800">
@@ -2081,6 +2133,7 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
                     const IconeStatus = statusObj.icone;
                     const dias = calcularDiasRestantes(it.data_vencimento);
                     const responsavel = (it.vendedor || it.coordenador || '-').trim();
+                    const infoCad = calcularDiasDesdeAdicao(it.created_at);
 
                     return (
                       <tr
@@ -2151,6 +2204,18 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
                             <span>{statusObj.texto}</span>
                           </span>
                         </td>
+
+                        {/* Data Cadastro */}
+                        <td className="py-2 px-2.5 text-center font-mono text-[11px] text-slate-700 whitespace-nowrap">
+                          {infoCad.dataFormatada}
+                        </td>
+
+                        {/* Dias Cadastrado */}
+                        <td className="py-2 px-2.5 text-center whitespace-nowrap">
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                            {infoCad.rotulo}
+                          </span>
+                        </td>
                       </tr>
                     );
                   })}
@@ -2175,6 +2240,9 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
                       <span className="text-amber-700">{resumo.criticos} crít.</span> /{' '}
                       {resumo.atencao > 0 && <span className="text-sky-700">{resumo.atencao} aten. / </span>}
                       <span className="text-emerald-700">{resumo.noPrazo} no prazo</span>
+                    </td>
+                    <td className="py-2.5 px-2.5 text-center text-slate-400 font-mono text-[10px]" colSpan={2}>
+                      -
                     </td>
                   </tr>
                 </tfoot>
