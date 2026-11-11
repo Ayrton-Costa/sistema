@@ -265,7 +265,10 @@ export async function importarDeExcel(file: File): Promise<Array<Omit<ItemValida
 
     const rawQtd = getVal('Quantidade', 'Qtd', 'Estoque', 'Saldo');
     const quantidade = Number(rawQtd) > 0 ? Number(rawQtd) : 1;
-    const unidade = String(getVal('Unidade', 'Un', 'Medida') || 'un').trim();
+    let unidade = String(getVal('Unidade', 'Un', 'Medida') || 'un').trim();
+    if (['g', 'gr', 'grama', 'gramas', 'g.', 'gr.'].includes(unidade.toLowerCase())) {
+      unidade = 'un';
+    }
     const loja = String(getVal('Loja', 'Filial', 'Mercado', 'Cliente')).trim();
     const estado = String(getVal('Estado (UF)', 'Estado', 'UF', 'Regiao')).trim().toUpperCase().substring(0, 2);
     const coordenador = String(getVal('Coordenador', 'Supervisor', 'Responsável', 'Responsavel', 'Promotor')).trim();
@@ -353,7 +356,15 @@ export function baixarModeloExcelImportacao() {
   XLSX.writeFile(workbook, 'Modelo_Controle_Validade_Importacao.xlsx');
 }
 
-export function exportarParaExcel(items: ItemValidade[], nomeArquivo = 'Controle_de_Validade') {
+export async function exportarParaExcel(items: ItemValidade[], nomeArquivo = 'Controle_de_Validade') {
+  try {
+    const { exportarRelatorioExcelProfissional } = await import('./excelReportGenerator');
+    await exportarRelatorioExcelProfissional(items);
+    return;
+  } catch (err) {
+    console.warn('Usando exportador fallback XLSX:', err);
+  }
+
   const dadosFormatados = items.map((item) => {
     const dias = calcularDiasRestantes(item.data_vencimento);
     const statusObj = obterStatusValidade(dias);
@@ -533,7 +544,10 @@ export async function importarProdutosDeExcel(file: File): Promise<Array<{
     const codigo = String(getVal('Código', 'Codigo', 'Cód', 'Cod', 'SKU', 'EAN', 'Código de Barras', 'Codigo de Barras') || '').trim();
     const industria = String(getVal('Indústria', 'Industria', 'Fabricante', 'Marca', 'Empresa', 'Indústria / Marca') || '').trim();
     const produto = String(getVal('Produto', 'Nome', 'Descricao', 'Descrição', 'Item', 'Mercadoria', 'Nome do Produto') || '').trim();
-    const unidade = String(getVal('Unidade', 'Un', 'Medida', 'Unidade Padrão', 'Unidade Padrao') || 'un').trim();
+    let unidade = String(getVal('Unidade', 'Un', 'Medida', 'Unidade Padrão', 'Unidade Padrao') || 'un').trim();
+    if (['g', 'gr', 'grama', 'gramas', 'g.', 'gr.'].includes(unidade.toLowerCase())) {
+      unidade = 'un';
+    }
 
     if (!produto && !industria && !codigo) continue;
 

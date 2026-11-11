@@ -33,10 +33,12 @@ import {
   ExternalLink,
   CalendarClock,
   History,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { ItemValidade, LojaCatalogo, SupabaseConfig, ProdutoCatalogo } from '../types';
 import { calcularDiasRestantes, calcularDiasDesdeAdicao, formatarDataBR, extrairAnoMesDia } from '../lib/excel';
-import { gerarRelatorioPDF, gerarRelatorioPDFFile } from '../lib/pdfGenerator';
+import { gerarRelatorioPDF, gerarRelatorioPDFFile, formatarUnidadePDF } from '../lib/pdfGenerator';
+import { exportarRelatorioExcelProfissional } from '../lib/excelReportGenerator';
 
 interface PdfReportViewProps {
   items: ItemValidade[];
@@ -169,6 +171,7 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
   const [telefoneWhatsApp, setTelefoneWhatsApp] = useState<string>('');
   const [copiadoFeedback, setCopiadoFeedback] = useState<boolean>(false);
   const [compartilhandoPdf, setCompartilhandoPdf] = useState<boolean>(false);
+  const [exportandoExcel, setExportandoExcel] = useState<boolean>(false);
 
   // Critérios de Dias configuráveis pelo usuário para definir cada Status
   // Padrão solicitado: 20 dias para critério de "No Prazo", e crítico até 7 dias (ambos 100% customizáveis)
@@ -929,6 +932,42 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
     });
   };
 
+  // Ação: Exportar Planilha Excel (.xlsx) com cores nos títulos, base completa e resumo dinâmico
+  const handleExportarExcel = async () => {
+    if (itensOrdenados.length === 0) {
+      alert('Nenhum registro encontrado para exportar a planilha de Excel.');
+      return;
+    }
+
+    setExportandoExcel(true);
+    try {
+      const prodsArray: string[] | undefined =
+        produtosSelecionados.size > 0 && !produtosSelecionados.has('__nenhum__')
+          ? Array.from(produtosSelecionados)
+          : undefined;
+
+      await exportarRelatorioExcelProfissional(itensOrdenados, {
+        coordenadorSelecionado,
+        industriaSelecionada,
+        lojaSelecionada,
+        produtosSelecionados: prodsArray,
+        produtoSelecionado: prodsArray && prodsArray.length === 1 ? prodsArray[0] : undefined,
+        skuSelecionado,
+        dataCadastroFiltro,
+        rotuloDataCadastro: rotuloDataCadastroFiltro || undefined,
+        statusSelecionados: Array.from(statusSelecionados),
+        nomeSistema: systemBranding?.systemName || 'Controle de Validade de Produtos',
+        diasCritico,
+        diasNoPrazo,
+      });
+    } catch (err) {
+      console.error('Erro ao gerar planilha Excel:', err);
+      alert('Ocorreu um erro ao gerar a planilha do Excel.');
+    } finally {
+      setExportandoExcel(false);
+    }
+  };
+
   // Ação: Imprimir / Salvar como PDF via Navegador
   const handleImprimir = () => {
     window.print();
@@ -983,7 +1022,7 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
         const sit = dias < 0 ? `Vencido há ${Math.abs(dias)}d` : dias === 0 ? 'Vence HOJE' : `Crítico (${dias}d)`;
         msg += `${idx + 1}. *${it.produto}*\n`;
         msg += `   └ SKU: ${it.codigo || '-'} | Loja: ${it.loja || 'Loja Principal'}\n`;
-        msg += `   └ Venc: ${formatarDataBR(it.data_vencimento)} (${sit}) | Qtd: *${it.quantidade} ${it.unidade || 'un'}*\n`;
+        msg += `   └ Venc: ${formatarDataBR(it.data_vencimento)} (${sit}) | Qtd: *${it.quantidade} ${formatarUnidadePDF(it.unidade)}*\n`;
       });
 
       const totalCriticosEVencidos = resumo.vencidos + resumo.criticos;
@@ -1063,7 +1102,7 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
       // E abre o WhatsApp com o texto informativo para que o usuário anexe o arquivo baixado
       const texto = `📄 *RELATÓRIO DE CONTROLE DE VALIDADE EM PDF*\n` +
         `Arquivo: *${nomeArquivo}*\n` +
-        `📊 *Total:* ${resumo.totalLinhas} produtos (${resumo.qtdTotal} un) | 🔴 Vencidos: ${resumo.vencidos} | 🟠 Críticos: ${resumo.criticos}\n` +
+        `📊 *Total:* ${resumo.totalLinhas} produtos (${resumo.qtdTotal} Un) | 🔴 Vencidos: ${resumo.vencidos} | 🟠 Críticos: ${resumo.criticos}\n` +
         `_O arquivo PDF com a tabela organizada linha a linha já foi gerado e baixado no dispositivo. Basta anexá-lo nesta conversa._\n\n` +
         gerarTextoWhatsApp();
 
@@ -1178,6 +1217,18 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
           >
             <FileDown className="w-4 h-4" />
             <span>Baixar Arquivo PDF</span>
+          </button>
+
+          {/* Botão de Exportar Planilha Excel (.xlsx) com cores, base e resumo dinâmico */}
+          <button
+            type="button"
+            onClick={handleExportarExcel}
+            disabled={exportandoExcel}
+            className="h-9 px-3.5 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+            title="Extrair planilha Excel (.xlsx) com cores nos títulos, base completa e resumo dinâmico"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            <span>{exportandoExcel ? 'Gerando Excel...' : 'Exportar Excel (.xlsx)'}</span>
           </button>
 
           <button
@@ -1865,7 +1916,7 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
 
         <div className="p-3 bg-white rounded-xl border border-blue-200 shadow-2xs">
           <div className="text-[11px] font-bold text-blue-700 uppercase">Qtd Total</div>
-          <div className="text-xl font-black text-blue-900 mt-0.5">{resumo.qtdTotal} un</div>
+          <div className="text-xl font-black text-blue-900 mt-0.5">{resumo.qtdTotal} Un</div>
           <div className="text-[10px] text-blue-600">{resumo.industriasUnicas} indústrias</div>
         </div>
 
@@ -1983,7 +2034,7 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
                   <div className="flex items-center justify-between">
                     <div className="font-extrabold text-sm text-slate-900">{c.responsavel}</div>
                     <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">
-                      {c.itensCount} {c.itensCount === 1 ? 'item' : 'itens'} ({c.qtdTotal} un)
+                      {c.itensCount} {c.itensCount === 1 ? 'item' : 'itens'} ({c.qtdTotal} Un)
                     </span>
                   </div>
 
@@ -2038,7 +2089,7 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
                   <div className="flex items-center justify-between">
                     <div className="font-extrabold text-sm text-slate-900">{ind.industria}</div>
                     <span className="text-[11px] font-bold text-purple-700 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-full">
-                      {ind.itensCount} produtos ({ind.qtdTotal} un)
+                      {ind.itensCount} produtos ({ind.qtdTotal} Un)
                     </span>
                   </div>
 
@@ -2354,7 +2405,7 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
 
                         {/* Quantidade */}
                         <td className="py-2 px-2.5 text-center font-mono font-bold text-slate-900">
-                          {it.quantidade} <span className="text-[10px] text-slate-500 font-normal">{it.unidade || 'un'}</span>
+                          {it.quantidade} <span className="text-[10px] text-slate-500 font-normal">{formatarUnidadePDF(it.unidade)}</span>
                         </td>
 
                         {/* Data Vencimento */}
@@ -2410,7 +2461,7 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
                       {resumo.totalLinhas} produtos
                     </td>
                     <td className="py-2.5 px-2.5 text-center font-mono font-black text-blue-900 bg-blue-100/40">
-                      {resumo.qtdTotal} un
+                      {resumo.qtdTotal} Un
                     </td>
                     <td className="py-2.5 px-2.5 text-center" colSpan={2}>
                       -
@@ -2481,7 +2532,7 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-600 mt-1">
-                  Tabela organizada com <strong>{resumo.totalLinhas} produtos</strong> ({resumo.qtdTotal} un) com colunas de <strong>Vendedor, Loja, Indústria, SKU, Qtd, Vencimento, Dias e Situação</strong>.
+                  Tabela organizada com <strong>{resumo.totalLinhas} produtos</strong> ({resumo.qtdTotal} Un) com colunas de <strong>Vendedor, Loja, Indústria, SKU, Qtd, Vencimento, Dias e Situação</strong>.
                 </p>
                 <div className="mt-2 text-[10.5px] bg-white p-2 rounded-lg border border-rose-200/80 text-slate-700 leading-tight">
                   <div className="flex items-center gap-1 font-bold text-slate-800 mb-0.5">

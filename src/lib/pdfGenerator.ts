@@ -20,6 +20,33 @@ export interface OpcoesRelatorioPDF {
   rotuloDataCadastro?: string;
 }
 
+/**
+ * Normaliza e padroniza a unidade de medida para o PDF:
+ * Converte 'g', 'gramas', 'gr' ou qualquer variação para 'Un' (Unidade),
+ * garantindo que os itens venham sempre em 'Un' e nunca em 'g' ou 'gramas'.
+ */
+export function formatarUnidadePDF(unidade?: string): string {
+  if (!unidade) return 'Un';
+  const u = String(unidade).trim().toLowerCase();
+  // Converte gramas, g, gr, quilos ou variações para 'Un' (Unidade)
+  if (['g', 'gr', 'grama', 'gramas', 'g.', 'gr.'].includes(u)) {
+    return 'Un';
+  }
+  if (['un', 'un.', 'und', 'unidade', 'unidades'].includes(u)) {
+    return 'Un';
+  }
+  if (u === 'cx' || u === 'caixa' || u === 'caixas') {
+    return 'Cx';
+  }
+  if (u === 'pct' || u === 'pacote' || u === 'pacotes') {
+    return 'Pct';
+  }
+  if (u === 'fd' || u === 'fardo' || u === 'fardos') {
+    return 'Fd';
+  }
+  return 'Un';
+}
+
 export function criarRelatorioPDFDoc(
   items: ItemValidade[],
   opcoes: OpcoesRelatorioPDF = {}
@@ -178,7 +205,7 @@ export function criarRelatorioPDFDoc(
   doc.setFont('helvetica', 'bold');
   doc.text('QTD TOTAL:', 72, 40.5);
   doc.setFont('helvetica', 'normal');
-  doc.text(`${qtdTotal} un`, 91, 40.5);
+  doc.text(`${qtdTotal} Un`, 91, 40.5);
 
   doc.setTextColor(185, 28, 28); // red-700
   doc.setFont('helvetica', 'bold');
@@ -212,7 +239,7 @@ export function criarRelatorioPDFDoc(
     const industria = (it.industria || '-').trim();
     const sku = it.codigo ? String(it.codigo).trim() : '-';
     const produto = (it.produto || '').trim();
-    const qtd = `${it.quantidade} ${it.unidade || 'un'}`;
+    const qtd = `${it.quantidade} ${formatarUnidadePDF(it.unidade)}`;
     const vencimento = formatarDataBR(it.data_vencimento);
 
     let situacao = `No Prazo (≥${diasNoPrazo}d)`;
@@ -324,7 +351,7 @@ export function criarRelatorioPDFDoc(
       `${new Set(items.map((i) => i.industria).filter(Boolean)).size} indústrias`,
       `${items.length} SKUs`,
       `${items.length} produtos listados`,
-      `${qtdTotal} un`,
+      `${qtdTotal} Un`,
       '-',
       '-',
       atencao > 0
