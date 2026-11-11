@@ -16,6 +16,8 @@ export interface OpcoesRelatorioPDF {
   geradoPor?: string;
   diasCritico?: number;
   diasNoPrazo?: number;
+  dataCadastroFiltro?: string;
+  rotuloDataCadastro?: string;
 }
 
 export function criarRelatorioPDFDoc(
@@ -121,6 +123,17 @@ export function criarRelatorioPDFDoc(
     currentX += doc.getTextWidth(`SKU: `);
     doc.setFont('helvetica', 'normal');
     doc.text(opcoes.skuSelecionado, currentX, 28);
+    currentX += doc.getTextWidth(opcoes.skuSelecionado) + 6;
+  }
+
+  const cadTexto = opcoes.rotuloDataCadastro || opcoes.dataCadastroFiltro;
+  if (cadTexto) {
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Cadastrado em: `, currentX, 28);
+    currentX += doc.getTextWidth(`Cadastrado em: `);
+    doc.setFont('helvetica', 'normal');
+    doc.text(cadTexto, currentX, 28);
+    currentX += doc.getTextWidth(cadTexto) + 6;
   }
 
   doc.setFont('helvetica', 'bold');

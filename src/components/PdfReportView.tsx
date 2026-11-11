@@ -35,7 +35,7 @@ import {
   History,
 } from 'lucide-react';
 import { ItemValidade, LojaCatalogo, SupabaseConfig, ProdutoCatalogo } from '../types';
-import { calcularDiasRestantes, calcularDiasDesdeAdicao, formatarDataBR } from '../lib/excel';
+import { calcularDiasRestantes, calcularDiasDesdeAdicao, formatarDataBR, extrairAnoMesDia } from '../lib/excel';
 import { gerarRelatorioPDF, gerarRelatorioPDFFile } from '../lib/pdfGenerator';
 
 interface PdfReportViewProps {
@@ -70,11 +70,44 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
   const [buscaProdutoFiltro, setBuscaProdutoFiltro] = useState<string>('');
   const dropdownProdutosRef = useRef<HTMLDivElement>(null);
   const [skuSelecionado, setSkuSelecionado] = useState<string>('todos');
+  // Filtro de Data de Cadastro no Sistema (dia específico YYYY-MM-DD ou presets)
+  const [dataCadastroFiltro, setDataCadastroFiltro] = useState<string>('');
   // Caixas de seleção para múltiplo status (Vencidos, Críticos, Atenção, No Prazo)
   const [statusSelecionados, setStatusSelecionados] = useState<Set<string>>(
     () => new Set(['vencido', 'critico', 'atencao', 'no_prazo'])
   );
   const [busca, setBusca] = useState<string>('');
+
+  // Helper para verificar se um item atende ao filtro de data de cadastro
+  const itemAtendeFiltroDataCadastro = (itemCreatedAt?: string, filtro?: string): boolean => {
+    if (!filtro) return true;
+    if (!itemCreatedAt) return false;
+    const ymd = extrairAnoMesDia(itemCreatedAt);
+    if (!ymd) return false;
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const itemDataYmd = `${ymd.ano}-${pad(ymd.mes)}-${pad(ymd.dia)}`;
+
+    if (filtro === 'hoje') {
+      const hoje = new Date();
+      const hojeYmd = `${hoje.getFullYear()}-${pad(hoje.getMonth() + 1)}-${pad(hoje.getDate())}`;
+      return itemDataYmd === hojeYmd;
+    }
+    if (filtro === 'ontem') {
+      const ontem = new Date();
+      ontem.setDate(ontem.getDate() - 1);
+      const ontemYmd = `${ontem.getFullYear()}-${pad(ontem.getMonth() + 1)}-${pad(ontem.getDate())}`;
+      return itemDataYmd === ontemYmd;
+    }
+    if (filtro === '7dias') {
+      const info = calcularDiasDesdeAdicao(itemCreatedAt);
+      return info.diasAtras <= 7;
+    }
+    if (filtro === '30dias') {
+      const info = calcularDiasDesdeAdicao(itemCreatedAt);
+      return info.diasAtras <= 30;
+    }
+    return itemDataYmd === filtro;
+  };
 
   // Helpers para manipulação das caixas de seleção de status
   const alternarStatus = (st: string) => {
@@ -511,7 +544,61 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
     return Array.from(mapa.values()).sort((a, b) => a.codigo.localeCompare(b.codigo, 'pt-BR'));
   }, [items, industriaSelecionada, produtosSelecionados]);
 
-  // Contagem dinâmica por status respeitando os filtros de Coordenador, Indústria, Loja, Produtos (multi-seleção), SKU e Busca
+  // 5. Lista única de datas em que produtos foram cadastrados no sistema
+  const listaDatasCadastro = useMemo(() => {
+    const mapa = new Map<string, { dataYmd: string; dataFormatada: string; count: number; rotulo: string }>();
+    const pad = (n: number) => String(n).padStart(2, '0');
+
+    items.forEach((it) => {
+      if (!it.created_at) return;
+      const ymd = extrairAnoMesDia(it.created_at);
+      if (!ymd) return;
+      const dataYmd = `${ymd.ano}-${pad(ymd.mes)}-${pad(ymd.dia)}`;
+      const info = calcularDiasDesdeAdicao(it.created_at);
+      const atual = mapa.get(dataYmd);
+      if (atual) {
+        atual.count += 1;
+      } else {
+        mapa.set(dataYmd, {
+          dataYmd,
+          dataFormatada: info.dataFormatada,
+          count: 1,
+          rotulo: info.rotulo,
+        });
+      }
+    });
+
+    return Array.from(mapa.values()).sort((a, b) => b.dataYmd.localeCompare(a.dataYmd));
+  }, [items]);
+
+  // Rótulo textual descritivo do filtro de data de cadastro ativo
+  const rotuloDataCadastroFiltro = useMemo(() => {
+    if (!dataCadastroFiltro) return '';
+    if (dataCadastroFiltro === 'hoje') {
+      const hoje = new Date();
+      const pad = (n: number) => String(n).padStart(2, '0');
+      return `Hoje (${pad(hoje.getDate())}/${pad(hoje.getMonth() + 1)}/${hoje.getFullYear()})`;
+    }
+    if (dataCadastroFiltro === 'ontem') {
+      const ontem = new Date();
+      ontem.setDate(ontem.getDate() - 1);
+      const pad = (n: number) => String(n).padStart(2, '0');
+      return `Ontem (${pad(ontem.getDate())}/${pad(ontem.getMonth() + 1)}/${ontem.getFullYear()})`;
+    }
+    if (dataCadastroFiltro === '7dias') {
+      return 'Últimos 7 dias';
+    }
+    if (dataCadastroFiltro === '30dias') {
+      return 'Últimos 30 dias';
+    }
+    const partes = dataCadastroFiltro.split('-');
+    if (partes.length === 3) {
+      return `${partes[2]}/${partes[1]}/${partes[0]}`;
+    }
+    return dataCadastroFiltro;
+  }, [dataCadastroFiltro]);
+
+  // Contagem dinâmica por status respeitando os filtros de Coordenador, Indústria, Loja, Produtos (multi-seleção), SKU, Data de Cadastro e Busca
   const contagemPorStatus = useMemo(() => {
     let vencidos = 0;
     let criticos = 0;
@@ -540,6 +627,10 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
       if (skuSelecionado !== 'todos') {
         if ((it.codigo || '').trim() !== skuSelecionado) return;
       }
+      // Filtro de Data de Cadastro
+      if (dataCadastroFiltro) {
+        if (!itemAtendeFiltroDataCadastro(it.created_at, dataCadastroFiltro)) return;
+      }
       if (busca.trim()) {
         const q = busca.trim().toLowerCase();
         const texto = `${it.produto || ''} ${it.codigo || ''} ${it.industria || ''} ${it.loja || ''} ${it.coordenador || ''} ${it.vendedor || ''}`.toLowerCase();
@@ -554,7 +645,7 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
     });
 
     return { vencidos, criticos, atencao, noPrazo };
-  }, [items, coordenadorSelecionado, industriaSelecionada, lojaSelecionada, produtosSelecionados, skuSelecionado, busca, diasCritico, diasNoPrazo]);
+  }, [items, coordenadorSelecionado, industriaSelecionada, lojaSelecionada, produtosSelecionados, skuSelecionado, dataCadastroFiltro, busca, diasCritico, diasNoPrazo]);
 
   // 6. Filtragem dos Itens para o Relatório
   const itensFiltrados = useMemo(() => {
@@ -590,6 +681,11 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
         if ((it.codigo || '').trim() !== skuSelecionado) return false;
       }
 
+      // Filtro de Data de Cadastro no Sistema
+      if (dataCadastroFiltro) {
+        if (!itemAtendeFiltroDataCadastro(it.created_at, dataCadastroFiltro)) return false;
+      }
+
       // Filtro de Status em Caixas de Seleção (Multi-seleção)
       const st = classificarStatus(it.data_vencimento).status;
       if (!statusSelecionados.has(st)) return false;
@@ -603,7 +699,7 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
 
       return true;
     });
-  }, [items, coordenadorSelecionado, industriaSelecionada, lojaSelecionada, produtosSelecionados, skuSelecionado, statusSelecionados, busca, diasCritico, diasNoPrazo]);
+  }, [items, coordenadorSelecionado, industriaSelecionada, lojaSelecionada, produtosSelecionados, skuSelecionado, dataCadastroFiltro, statusSelecionados, busca, diasCritico, diasNoPrazo]);
 
   // 6. Ordenação dos Itens filtrados para exibição na tabela e exportação em PDF
   const itensOrdenados = useMemo(() => {
@@ -824,6 +920,8 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
       produtosSelecionados: prodsArray,
       produtoSelecionado: prodsArray && prodsArray.length === 1 ? prodsArray[0] : undefined,
       skuSelecionado,
+      dataCadastroFiltro,
+      rotuloDataCadastro: rotuloDataCadastroFiltro || undefined,
       statusSelecionados: Array.from(statusSelecionados),
       nomeSistema: systemBranding?.systemName || 'Controle de Validade de Produtos',
       diasCritico,
@@ -858,6 +956,7 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
     }
     if (lojaSelecionada !== 'todas') msg += `• Loja: *${loja}*\n`;
     if (skuSelecionado !== 'todos') msg += `• SKU: *${sku}*\n`;
+    if (dataCadastroFiltro) msg += `• Data de Cadastro: *${rotuloDataCadastroFiltro}*\n`;
     msg += `• Critério de Dias: Crítico ≤ ${diasCritico}d | No Prazo ≥ ${diasNoPrazo}d\n\n`;
 
     msg += `📊 *RESUMO GERAL:*\n`;
@@ -920,6 +1019,8 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
         produtosSelecionados: prodsArray,
         produtoSelecionado: prodsArray && prodsArray.length === 1 ? prodsArray[0] : undefined,
         skuSelecionado,
+        dataCadastroFiltro,
+        rotuloDataCadastro: rotuloDataCadastroFiltro || undefined,
         statusSelecionados: Array.from(statusSelecionados),
         nomeSistema: systemBranding?.systemName || 'Controle de Validade de Produtos',
         diasCritico,
@@ -951,6 +1052,8 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
         produtosSelecionados: prodsArray,
         produtoSelecionado: prodsArray && prodsArray.length === 1 ? prodsArray[0] : undefined,
         skuSelecionado,
+        dataCadastroFiltro,
+        rotuloDataCadastro: rotuloDataCadastroFiltro || undefined,
         statusSelecionados: Array.from(statusSelecionados),
         nomeSistema: systemBranding?.systemName || 'Controle de Validade de Produtos',
         diasCritico,
@@ -1016,6 +1119,7 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
     lojaSelecionada !== 'todas' ||
     temFiltroProdutoAtivo ||
     skuSelecionado !== 'todos' ||
+    Boolean(dataCadastroFiltro) ||
     statusSelecionados.size < totalStatusPossiveis ||
     Boolean(busca.trim());
 
@@ -1025,6 +1129,7 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
     setLojaSelecionada('todas');
     setProdutosSelecionados(new Set());
     setSkuSelecionado('todos');
+    setDataCadastroFiltro('');
     setStatusSelecionados(new Set(['vencido', 'critico', 'atencao', 'no_prazo']));
     setBusca('');
   };
@@ -1330,6 +1435,73 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
                     </option>
                   ))}
                 </select>
+              </div>
+            </div>
+
+            {/* 5. SELETOR DE DATA DE CADASTRO NO SISTEMA */}
+            <div
+              className={`flex items-center gap-1.5 rounded-lg px-2 h-9 shadow-2xs border transition ${
+                dataCadastroFiltro
+                  ? 'bg-purple-50/80 border-purple-300 ring-1 ring-purple-400/30'
+                  : 'bg-slate-50 border-slate-200'
+              }`}
+            >
+              <CalendarClock
+                className={`w-3.5 h-3.5 shrink-0 ${dataCadastroFiltro ? 'text-purple-700' : 'text-purple-600'}`}
+              />
+              <div className="flex flex-col">
+                <div className="flex items-center justify-between gap-1">
+                  <span
+                    className={`text-[9px] font-bold uppercase leading-none ${
+                      dataCadastroFiltro ? 'text-purple-800' : 'text-slate-500'
+                    }`}
+                  >
+                    Data Cadastro:
+                  </span>
+                  {dataCadastroFiltro && (
+                    <button
+                      type="button"
+                      onClick={() => setDataCadastroFiltro('')}
+                      className="text-[9px] font-bold text-red-500 hover:text-red-700 leading-none cursor-pointer"
+                      title="Limpar filtro de data de cadastro"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+                <div className="flex items-center gap-1">
+                  <select
+                    value={dataCadastroFiltro}
+                    onChange={(e) => setDataCadastroFiltro(e.target.value)}
+                    className="text-xs bg-transparent focus:outline-none font-bold text-slate-800 cursor-pointer max-w-[155px] truncate"
+                  >
+                    <option value="">Todas as Datas ({listaDatasCadastro.length} dias)</option>
+                    <option value="hoje">📅 Hoje</option>
+                    <option value="ontem">📅 Ontem</option>
+                    <option value="7dias">📅 Últimos 7 dias</option>
+                    <option value="30dias">📅 Últimos 30 dias</option>
+                    {listaDatasCadastro.length > 0 && (
+                      <optgroup label="Dias com Cadastros no Sistema">
+                        {listaDatasCadastro.map((dc) => (
+                          <option key={dc.dataYmd} value={dc.dataYmd}>
+                            {dc.dataFormatada} ({dc.rotulo}) - {dc.count} {dc.count === 1 ? 'item' : 'itens'}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </select>
+                  <input
+                    type="date"
+                    value={
+                      dataCadastroFiltro && !['hoje', 'ontem', '7dias', '30dias'].includes(dataCadastroFiltro)
+                        ? dataCadastroFiltro
+                        : ''
+                    }
+                    onChange={(e) => setDataCadastroFiltro(e.target.value)}
+                    title="Escolher dia específico no calendário"
+                    className="w-5 h-5 opacity-70 hover:opacity-100 cursor-pointer bg-transparent border-0 text-[10px] p-0"
+                  />
+                </div>
               </div>
             </div>
 
@@ -1672,9 +1844,9 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
           </div>
 
           <div className="text-[11px] text-slate-500">
-            {coordenadorSelecionado !== 'todos' || industriaSelecionada !== 'todas' || temFiltroProdutoAtivo ? (
+            {coordenadorSelecionado !== 'todos' || industriaSelecionada !== 'todas' || temFiltroProdutoAtivo || Boolean(dataCadastroFiltro) ? (
               <span className="font-semibold text-indigo-700">
-                Visualizando Resumo Filtrado ({coordenadorSelecionado !== 'todos' ? coordenadorSelecionado : 'Todos Coord.'} • {industriaSelecionada !== 'todas' ? industriaSelecionada : 'Todas Ind.'}{temFiltroProdutoAtivo ? ` • ${resumoTextoProdutos}` : ''})
+                Visualizando Resumo Filtrado ({coordenadorSelecionado !== 'todos' ? coordenadorSelecionado : 'Todos Coord.'} • {industriaSelecionada !== 'todas' ? industriaSelecionada : 'Todas Ind.'}{temFiltroProdutoAtivo ? ` • ${resumoTextoProdutos}` : ''}{dataCadastroFiltro ? ` • Cadastrado: ${rotuloDataCadastroFiltro}` : ''})
               </span>
             ) : (
               <span className="font-semibold text-slate-600">Visualizando Resumo Geral Consolidado</span>
@@ -1758,6 +1930,14 @@ export const PdfReportView: React.FC<PdfReportViewProps> = ({
                   <span>•</span>
                   <span>
                     SKU: <strong>{skuSelecionado}</strong>
+                  </span>
+                </>
+              )}
+              {dataCadastroFiltro && (
+                <>
+                  <span>•</span>
+                  <span className="font-semibold text-purple-800">
+                    Cadastrado em: <strong>{rotuloDataCadastroFiltro}</strong>
                   </span>
                 </>
               )}
